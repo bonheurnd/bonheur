@@ -257,6 +257,35 @@ export function initDatabase() {
       description TEXT
     );
 
+    -- 16b. Choir Leadership & Contact Information
+    CREATE TABLE IF NOT EXISTS leadership_contacts (
+      id TEXT PRIMARY KEY,
+      leader_name TEXT NOT NULL,
+      leader_phone TEXT NOT NULL,
+      leader_whatsapp TEXT NOT NULL,
+      leader_title_rw TEXT DEFAULT 'Umuyobozi wa Korali',
+      leader_title_en TEXT DEFAULT 'Choir Leader / President',
+      secretary_name TEXT NOT NULL,
+      secretary_phone TEXT NOT NULL,
+      secretary_whatsapp TEXT NOT NULL,
+      secretary_title_rw TEXT DEFAULT 'Umunyamabanga wa Korali',
+      secretary_title_en TEXT DEFAULT 'Choir Secretary',
+      general_phone TEXT NOT NULL,
+      general_whatsapp TEXT NOT NULL,
+      general_email TEXT NOT NULL,
+      address TEXT NOT NULL,
+      city TEXT NOT NULL DEFAULT 'Kigali',
+      country TEXT NOT NULL DEFAULT 'Rwanda',
+      weekday_range TEXT DEFAULT 'Kuwa Mbere – Kuwa Gatanu (Monday–Friday)',
+      weekday_hours TEXT NOT NULL,
+      weekend_range TEXT DEFAULT 'Kuwa Gatandatu – Ku Cyumweru (Saturday–Sunday)',
+      weekend_hours TEXT NOT NULL,
+      contact_description_rw TEXT,
+      contact_description_en TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_by TEXT
+    );
+
     -- 17. Audit Logs
     CREATE TABLE IF NOT EXISTS audit_logs (
       id TEXT PRIMARY KEY,
@@ -570,6 +599,32 @@ export function initDatabase() {
   ];
   const insertSetting = db.prepare('INSERT OR IGNORE INTO app_settings (key, value, description) VALUES (?, ?, ?)');
   defaultSettings.forEach(s => insertSetting.run(s.key, s.value, s.description));
+
+  // Seed initial Leadership Contacts
+  const existingContacts = db.prepare('SELECT id FROM leadership_contacts WHERE id = ?').get('default_contacts');
+  if (!existingContacts) {
+    db.prepare(`
+      INSERT INTO leadership_contacts (
+        id,
+        leader_name, leader_phone, leader_whatsapp, leader_title_rw, leader_title_en,
+        secretary_name, secretary_phone, secretary_whatsapp, secretary_title_rw, secretary_title_en,
+        general_phone, general_whatsapp, general_email,
+        address, city, country,
+        weekday_range, weekday_hours, weekend_range, weekend_hours,
+        contact_description_rw, contact_description_en
+      ) VALUES (
+        'default_contacts',
+        '[INSERT NAME]', '[INSERT PHONE NUMBER]', '[INSERT WHATSAPP NUMBER]', 'Umuyobozi wa Korali', 'Choir Leader / President',
+        '[INSERT NAME]', '[INSERT PHONE NUMBER]', '[INSERT WHATSAPP NUMBER]', 'Umunyamabanga wa Korali', 'Choir Secretary',
+        '[INSERT PHONE NUMBER]', '[INSERT WHATSAPP NUMBER]', '[INSERT EMAIL ADDRESS]',
+        '[INSERT CHOIR ADDRESS]', 'Kigali', 'Rwanda',
+        'Kuwa Mbere – Kuwa Gatanu (Monday–Friday)', '[INSERT HOURS]',
+        'Kuwa Gatandatu – Ku Cyumweru (Saturday–Sunday)', '[INSERT HOURS]',
+        'Ufite ikibazo, igitekerezo, cyangwa ushaka kumenya byinshi kuri La Lumiere Choir? Twandikire cyangwa utuvugishe ukoresheje bumwe mu buryo bukurikira.',
+        'Do you have questions, feedback, or need information about La Lumiere Choir? Get in touch with our leadership team using the options below.'
+      )
+    `).run();
+  }
 
   // Seed the 4 official categories and 92 authentic songs from LA_LUMIERE_CHORALE_SONGS_APP_READY.json
   seedOfficialSongs();

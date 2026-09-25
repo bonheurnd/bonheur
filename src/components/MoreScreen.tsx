@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useBranding } from '../context/BrandingContext';
 import { ChoirLogo } from './ChoirLogo';
 import { PWAInstallButton } from './PWAInstallButton';
+import { ContactSection } from './ContactSection';
 import {
   getAllOfflineSongs,
   downloadAllSongsForOffline,
@@ -14,8 +15,6 @@ import {
   Shield,
   Smartphone,
   HeartHandshake,
-  Phone,
-  Mail,
   ChevronRight,
   Download,
   Trash2,
@@ -305,20 +304,8 @@ export const MoreScreen: React.FC<MoreScreenProps> = ({
         </button>
       </div>
 
-      {/* Direct Contact Card */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-2.5 text-xs text-slate-700">
-        <h4 className="font-bold text-slate-900 uppercase tracking-wider text-[11px]">
-          Twandikire / Tuvugishe (Contact Choir Leadership):
-        </h4>
-        <div className="flex items-center gap-2 text-slate-600">
-          <Phone className="w-4 h-4 text-blue-900" />
-          <span>{choirInfo.contact_phone}</span>
-        </div>
-        <div className="flex items-center gap-2 text-slate-600">
-          <Mail className="w-4 h-4 text-blue-900" />
-          <span>{choirInfo.contact_email}</span>
-        </div>
-      </div>
+      {/* Contact Choir Leadership Section */}
+      <ContactSection />
 
       {/* Admin Portal Gateway Link */}
       <div className="pt-1 pb-4 text-center">

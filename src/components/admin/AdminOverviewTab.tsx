@@ -15,6 +15,7 @@ import {
   Clock,
   Shield,
   FileCheck,
+  PhoneCall,
 } from 'lucide-react';
 import { AdminMetrics, ActivityLog } from '../../types';
 
@@ -233,6 +234,27 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
           </div>
           <p className="text-xl font-extrabold text-slate-900">{m.totalDocuments}</p>
           <p className="text-[10px] text-slate-500 mt-1">Sheet music & guides</p>
+        </div>
+
+        {/* Contact Leadership Card */}
+        <div
+          onClick={() => onNavigateTab('contacts')}
+          className="bg-gradient-to-br from-blue-900 to-indigo-950 text-white p-4 rounded-3xl border border-blue-900 shadow-xs cursor-pointer hover:border-amber-400 transition-all col-span-2 sm:col-span-4"
+        >
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-xl bg-amber-400/20 text-amber-300 flex items-center justify-center">
+                <PhoneCall className="w-3.5 h-3.5 text-amber-300" />
+              </div>
+              <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                Tunganya Amakuru yo Kuvugisha Ubuyobozi (Manage Choir Contact)
+              </span>
+            </div>
+            <ArrowRight className="w-4 h-4 text-amber-300" />
+          </div>
+          <p className="text-xs text-slate-200 mt-1">
+            Kanda hano uhindure amazina, telefone, WhatsApp, imeli, aderesi, n'amasaha by'ubuyobozi bwa Korali.
+          </p>
         </div>
 
         {/* Donations */}

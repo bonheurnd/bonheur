@@ -1,13 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { parseResponseSafely } from '../utils/api';
-import { BrandingSettings, ChoirInfo } from '../types';
+import { BrandingSettings, ChoirInfo, LeadershipContactRecord } from '../types';
 
 interface BrandingContextType {
   branding: BrandingSettings;
   choirInfo: ChoirInfo;
+  leadershipContacts: LeadershipContactRecord;
   isLoading: boolean;
   refreshBranding: () => Promise<void>;
   updateBranding: (data: Partial<BrandingSettings> & Partial<ChoirInfo>) => Promise<void>;
+  refreshContacts: () => Promise<void>;
+  updateContacts: (data: Partial<LeadershipContactRecord>) => Promise<void>;
 }
 
 const defaultBranding: BrandingSettings = {
@@ -23,6 +26,32 @@ const defaultBranding: BrandingSettings = {
   accent_color: '#2563eb',
   background_color: '#f8fafc',
   text_color: '#0f172a',
+};
+
+const defaultLeadershipContacts: LeadershipContactRecord = {
+  id: 'default_contacts',
+  leader_name: '[INSERT NAME]',
+  leader_phone: '[INSERT PHONE NUMBER]',
+  leader_whatsapp: '[INSERT WHATSAPP NUMBER]',
+  leader_title_rw: 'Umuyobozi wa Korali',
+  leader_title_en: 'Choir Leader / President',
+  secretary_name: '[INSERT NAME]',
+  secretary_phone: '[INSERT PHONE NUMBER]',
+  secretary_whatsapp: '[INSERT WHATSAPP NUMBER]',
+  secretary_title_rw: 'Umunyamabanga wa Korali',
+  secretary_title_en: 'Choir Secretary',
+  general_phone: '[INSERT PHONE NUMBER]',
+  general_whatsapp: '[INSERT WHATSAPP NUMBER]',
+  general_email: '[INSERT EMAIL ADDRESS]',
+  address: '[INSERT CHOIR ADDRESS]',
+  city: 'Kigali',
+  country: 'Rwanda',
+  weekday_range: 'Kuwa Mbere – Kuwa Gatanu (Monday–Friday)',
+  weekday_hours: '[INSERT HOURS]',
+  weekend_range: 'Kuwa Gatandatu – Ku Cyumweru (Saturday–Sunday)',
+  weekend_hours: '[INSERT HOURS]',
+  contact_description_rw: 'Ufite ikibazo, igitekerezo, cyangwa ushaka kumenya byinshi kuri La Lumiere Choir? Twandikire cyangwa utuvugishe ukoresheje bumwe mu buryo bukurikira.',
+  contact_description_en: 'Do you have questions, feedback, or need information about La Lumiere Choir? Get in touch with our leadership team using the options below.',
 };
 
 const defaultChoirInfo: ChoirInfo = {
@@ -45,7 +74,23 @@ const BrandingContext = createContext<BrandingContextType | undefined>(undefined
 export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [branding, setBranding] = useState<BrandingSettings>(defaultBranding);
   const [choirInfo, setChoirInfo] = useState<ChoirInfo>(defaultChoirInfo);
+  const [leadershipContacts, setLeadershipContacts] = useState<LeadershipContactRecord>(defaultLeadershipContacts);
   const [isLoading, setIsLoading] = useState(true);
+
+  const fetchContacts = async () => {
+    try {
+      const res = await fetch('/api/contacts');
+      const { data } = await parseResponseSafely<LeadershipContactRecord>(res);
+      if (res.ok && data) {
+        setLeadershipContacts(prev => ({
+          ...prev,
+          ...data,
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to load leadership contacts:', err);
+    }
+  };
 
   const fetchBranding = async () => {
     try {
@@ -77,6 +122,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     fetchBranding();
+    fetchContacts();
   }, []);
 
   const updateBranding = async (data: any) => {
@@ -98,14 +144,37 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await fetchBranding();
   };
 
+  const updateContacts = async (data: Partial<LeadershipContactRecord>) => {
+    const token = localStorage.getItem('lalumiere_token');
+    const res = await fetch('/api/admin/contacts', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+
+    const { data: resData, errorMessage } = await parseResponseSafely<{ success?: boolean; message?: string }>(res);
+    if (!res.ok) {
+      throw new Error(errorMessage || 'Failed to update contact information');
+    }
+
+    await fetchContacts();
+    await fetchBranding();
+  };
+
   return (
     <BrandingContext.Provider
       value={{
         branding,
         choirInfo,
+        leadershipContacts,
         isLoading,
         refreshBranding: fetchBranding,
         updateBranding,
+        refreshContacts: fetchContacts,
+        updateContacts,
       }}
     >
       {children}

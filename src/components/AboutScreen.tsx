@@ -1,7 +1,8 @@
 import React from 'react';
 import { useBranding } from '../context/BrandingContext';
 import { ChoirLogo } from './ChoirLogo';
-import { MapPin, Phone, Mail, Youtube, Instagram, Facebook, Award, Users, Heart } from 'lucide-react';
+import { ContactSection } from './ContactSection';
+import { Youtube, Instagram, Facebook, Award, Users } from 'lucide-react';
 
 export const AboutScreen: React.FC = () => {
   const { choirInfo } = useBranding();
@@ -57,30 +58,8 @@ export const AboutScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Church Affiliation & Location */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-3 text-xs">
-        <h2 className="text-base font-extrabold text-slate-900 font-serif border-b pb-2">
-          Itorero n'Icyicaro (Church Affiliation)
-        </h2>
-
-        <div className="flex items-start gap-3 text-slate-700">
-          <MapPin className="w-4 h-4 text-blue-900 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-bold text-slate-900">ADEPR Paruwasi ya Nyanza</p>
-            <p className="text-slate-500 text-[11px]">Akarere ka Kicukiro, Umujyi wa Kigali, Rwanda</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 text-slate-700">
-          <Phone className="w-4 h-4 text-blue-900 shrink-0" />
-          <span>{choirInfo.contact_phone}</span>
-        </div>
-
-        <div className="flex items-center gap-3 text-slate-700">
-          <Mail className="w-4 h-4 text-blue-900 shrink-0" />
-          <span>{choirInfo.contact_email}</span>
-        </div>
-      </div>
+      {/* Contact Choir Leadership Section */}
+      <ContactSection />
 
       {/* Social Media Channels */}
       <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-3 text-center">

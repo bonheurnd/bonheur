@@ -263,3 +263,32 @@ export interface ChoirInfo {
     facebook: string;
   };
 }
+
+export interface LeadershipContactRecord {
+  id?: string;
+  leader_name: string;
+  leader_phone: string;
+  leader_whatsapp: string;
+  leader_title_rw?: string;
+  leader_title_en?: string;
+  secretary_name: string;
+  secretary_phone: string;
+  secretary_whatsapp: string;
+  secretary_title_rw?: string;
+  secretary_title_en?: string;
+  general_phone: string;
+  general_whatsapp: string;
+  general_email: string;
+  address: string;
+  city: string;
+  country: string;
+  weekday_range?: string;
+  weekday_hours: string;
+  weekend_range?: string;
+  weekend_hours: string;
+  contact_description_rw?: string;
+  contact_description_en?: string;
+  updated_at?: string;
+  updated_by?: string;
+}
+

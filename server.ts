@@ -81,6 +81,46 @@ app.get('/api/branding', (req, res) => {
 });
 
 // -------------------------------------------------------------
+// PUBLIC CHOIR LEADERSHIP CONTACT INFORMATION API
+// -------------------------------------------------------------
+app.get('/api/contacts', (req, res) => {
+  try {
+    let contacts = db.prepare('SELECT * FROM leadership_contacts WHERE id = ?').get('default_contacts') as any;
+    if (!contacts) {
+      contacts = {
+        id: 'default_contacts',
+        leader_name: '[INSERT NAME]',
+        leader_phone: '[INSERT PHONE NUMBER]',
+        leader_whatsapp: '[INSERT WHATSAPP NUMBER]',
+        leader_title_rw: 'Umuyobozi wa Korali',
+        leader_title_en: 'Choir Leader / President',
+        secretary_name: '[INSERT NAME]',
+        secretary_phone: '[INSERT PHONE NUMBER]',
+        secretary_whatsapp: '[INSERT WHATSAPP NUMBER]',
+        secretary_title_rw: 'Umunyamabanga wa Korali',
+        secretary_title_en: 'Choir Secretary',
+        general_phone: '[INSERT PHONE NUMBER]',
+        general_whatsapp: '[INSERT WHATSAPP NUMBER]',
+        general_email: '[INSERT EMAIL ADDRESS]',
+        address: '[INSERT CHOIR ADDRESS]',
+        city: 'Kigali',
+        country: 'Rwanda',
+        weekday_range: 'Kuwa Mbere – Kuwa Gatanu (Monday–Friday)',
+        weekday_hours: '[INSERT HOURS]',
+        weekend_range: 'Kuwa Gatandatu – Ku Cyumweru (Saturday–Sunday)',
+        weekend_hours: '[INSERT HOURS]',
+        contact_description_rw: 'Ufite ikibazo, igitekerezo, cyangwa ushaka kumenya byinshi kuri La Lumiere Choir? Twandikire cyangwa utuvugishe ukoresheje bumwe mu buryo bukurikira.',
+        contact_description_en: 'Do you have questions, feedback, or need information about La Lumiere Choir? Get in touch with our leadership team using the options below.',
+      };
+    }
+
+    res.json(contacts);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch choir leadership contact details' });
+  }
+});
+
+// -------------------------------------------------------------
 // AUTHENTICATION ROUTES
 // -------------------------------------------------------------
 app.post('/api/auth/register', (req, res) => {
@@ -2798,6 +2838,192 @@ app.put('/api/admin/branding', requireAdmin, (req: AuthRequest, res) => {
     res.json({ message: 'Ibirango n\'amabara byavuguruwe (Branding updated successfully)' });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update branding' });
+  }
+});
+
+// -------------------------------------------------------------
+// ADMIN CHOIR LEADERSHIP CONTACT MANAGEMENT API
+// -------------------------------------------------------------
+app.get('/api/admin/contacts', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    let contacts = db.prepare('SELECT * FROM leadership_contacts WHERE id = ?').get('default_contacts') as any;
+    if (!contacts) {
+      contacts = {
+        id: 'default_contacts',
+        leader_name: '[INSERT NAME]',
+        leader_phone: '[INSERT PHONE NUMBER]',
+        leader_whatsapp: '[INSERT WHATSAPP NUMBER]',
+        leader_title_rw: 'Umuyobozi wa Korali',
+        leader_title_en: 'Choir Leader / President',
+        secretary_name: '[INSERT NAME]',
+        secretary_phone: '[INSERT PHONE NUMBER]',
+        secretary_whatsapp: '[INSERT WHATSAPP NUMBER]',
+        secretary_title_rw: 'Umunyamabanga wa Korali',
+        secretary_title_en: 'Choir Secretary',
+        general_phone: '[INSERT PHONE NUMBER]',
+        general_whatsapp: '[INSERT WHATSAPP NUMBER]',
+        general_email: '[INSERT EMAIL ADDRESS]',
+        address: '[INSERT CHOIR ADDRESS]',
+        city: 'Kigali',
+        country: 'Rwanda',
+        weekday_range: 'Kuwa Mbere – Kuwa Gatanu (Monday–Friday)',
+        weekday_hours: '[INSERT HOURS]',
+        weekend_range: 'Kuwa Gatandatu – Ku Cyumweru (Saturday–Sunday)',
+        weekend_hours: '[INSERT HOURS]',
+        contact_description_rw: 'Ufite ikibazo, igitekerezo, cyangwa ushaka kumenya byinshi kuri La Lumiere Choir? Twandikire cyangwa utuvugishe ukoresheje bumwe mu buryo bukurikira.',
+        contact_description_en: 'Do you have questions, feedback, or need information about La Lumiere Choir? Get in touch with our leadership team using the options below.',
+      };
+    }
+    res.json(contacts);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch choir leadership contact details' });
+  }
+});
+
+app.put('/api/admin/contacts', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const {
+      leader_name,
+      leader_phone,
+      leader_whatsapp,
+      leader_title_rw,
+      leader_title_en,
+      secretary_name,
+      secretary_phone,
+      secretary_whatsapp,
+      secretary_title_rw,
+      secretary_title_en,
+      general_phone,
+      general_whatsapp,
+      general_email,
+      address,
+      city,
+      country,
+      weekday_range,
+      weekday_hours,
+      weekend_range,
+      weekend_hours,
+      contact_description_rw,
+      contact_description_en
+    } = req.body;
+
+    // Strict validation for required fields
+    if (!leader_name?.trim()) {
+      return res.status(400).json({ error: 'Izina ry\'Umuyobozi wa Korali rirakenewe (Leader name required)' });
+    }
+    if (!leader_phone?.trim()) {
+      return res.status(400).json({ error: 'Nimero ya telefone y\'Umuyobozi irakenewe (Leader phone required)' });
+    }
+    if (!secretary_name?.trim()) {
+      return res.status(400).json({ error: 'Izina ry\'Umunyamabanga rirakenewe (Secretary name required)' });
+    }
+    if (!secretary_phone?.trim()) {
+      return res.status(400).json({ error: 'Nimero ya telefone y\'Umunyamabanga irakenewe (Secretary phone required)' });
+    }
+    if (!general_phone?.trim()) {
+      return res.status(400).json({ error: 'Telefone rusange ya korali irakenewe (General choir phone required)' });
+    }
+    if (!general_email?.trim()) {
+      return res.status(400).json({ error: 'Imeli rusange ya korali irakenewe (General choir email required)' });
+    }
+    if (!address?.trim()) {
+      return res.status(400).json({ error: 'Aderesi cyangwa icyicaro cya korali birakenewe (Address required)' });
+    }
+
+    // Email format check
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const cleanEmail = general_email.trim();
+    if (!cleanEmail.includes('[INSERT') && !emailRegex.test(cleanEmail)) {
+      return res.status(400).json({ error: 'Imeli yanditse nabi. Urugero: info@lalumierechoir.rw (Invalid email format)' });
+    }
+
+    // Insert or replace in leadership_contacts
+    db.prepare(`
+      INSERT INTO leadership_contacts (
+        id,
+        leader_name, leader_phone, leader_whatsapp, leader_title_rw, leader_title_en,
+        secretary_name, secretary_phone, secretary_whatsapp, secretary_title_rw, secretary_title_en,
+        general_phone, general_whatsapp, general_email,
+        address, city, country,
+        weekday_range, weekday_hours, weekend_range, weekend_hours,
+        contact_description_rw, contact_description_en,
+        updated_at, updated_by
+      ) VALUES (
+        'default_contacts',
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?,
+        CURRENT_TIMESTAMP, ?
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        leader_name = excluded.leader_name,
+        leader_phone = excluded.leader_phone,
+        leader_whatsapp = excluded.leader_whatsapp,
+        leader_title_rw = excluded.leader_title_rw,
+        leader_title_en = excluded.leader_title_en,
+        secretary_name = excluded.secretary_name,
+        secretary_phone = excluded.secretary_phone,
+        secretary_whatsapp = excluded.secretary_whatsapp,
+        secretary_title_rw = excluded.secretary_title_rw,
+        secretary_title_en = excluded.secretary_title_en,
+        general_phone = excluded.general_phone,
+        general_whatsapp = excluded.general_whatsapp,
+        general_email = excluded.general_email,
+        address = excluded.address,
+        city = excluded.city,
+        country = excluded.country,
+        weekday_range = excluded.weekday_range,
+        weekday_hours = excluded.weekday_hours,
+        weekend_range = excluded.weekend_range,
+        weekend_hours = excluded.weekend_hours,
+        contact_description_rw = excluded.contact_description_rw,
+        contact_description_en = excluded.contact_description_en,
+        updated_at = CURRENT_TIMESTAMP,
+        updated_by = excluded.updated_by
+    `).run(
+      leader_name.trim(),
+      leader_phone.trim(),
+      leader_whatsapp?.trim() || leader_phone.trim(),
+      leader_title_rw?.trim() || 'Umuyobozi wa Korali',
+      leader_title_en?.trim() || 'Choir Leader / President',
+      secretary_name.trim(),
+      secretary_phone.trim(),
+      secretary_whatsapp?.trim() || secretary_phone.trim(),
+      secretary_title_rw?.trim() || 'Umunyamabanga wa Korali',
+      secretary_title_en?.trim() || 'Choir Secretary',
+      general_phone.trim(),
+      general_whatsapp?.trim() || general_phone.trim(),
+      cleanEmail,
+      address.trim(),
+      city?.trim() || 'Kigali',
+      country?.trim() || 'Rwanda',
+      weekday_range?.trim() || 'Kuwa Mbere – Kuwa Gatanu (Monday–Friday)',
+      weekday_hours?.trim() || '[INSERT HOURS]',
+      weekend_range?.trim() || 'Kuwa Gatandatu – Ku Cyumweru (Saturday–Sunday)',
+      weekend_hours?.trim() || '[INSERT HOURS]',
+      contact_description_rw?.trim() || '',
+      contact_description_en?.trim() || '',
+      req.user!.id
+    );
+
+    // Synchronize contact_phone and contact_email in app_settings as well for backward compatibility
+    const upsertSetting = db.prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)');
+    upsertSetting.run('contact_phone', general_phone.trim());
+    upsertSetting.run('contact_email', cleanEmail);
+
+    // Audit log
+    db.prepare("INSERT INTO audit_logs (id, user_id, action, resource, details) VALUES (?, ?, 'UPDATE_CONTACT_INFO', 'leadership_contacts', ?)")
+      .run('log_' + Date.now(), req.user!.id, `Choir leadership contact information updated by ${req.user!.name}`);
+
+    res.json({
+      message: 'Amakuru yo kuvugisha ubuyobozi yabitswe neza (Contact information updated successfully)',
+      success: true
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update contact information' });
   }
 });
 

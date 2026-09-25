@@ -27,6 +27,7 @@ import {
   Download,
   CheckCircle,
   ExternalLink,
+  PhoneCall,
 } from 'lucide-react';
 
 import { AdminLoginPortal } from './admin/AdminLoginPortal';
@@ -37,6 +38,7 @@ import { AdminContentTab } from './admin/AdminContentTab';
 import { AdminCommentsTab } from './admin/AdminCommentsTab';
 import { AdminUsersTab } from './admin/AdminUsersTab';
 import { AdminLogsTab } from './admin/AdminLogsTab';
+import { AdminContactTab } from './admin/AdminContactTab';
 import { safeFetchJson } from '../utils/api';
 
 interface AdminDashboardProps {
@@ -56,6 +58,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'songs'
     | 'media'
     | 'content'
+    | 'contacts'
     | 'comments'
     | 'users'
     | 'logs'
@@ -254,6 +257,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'songs', label: 'Indirimbo', icon: BookOpen },
           { id: 'media', label: 'Amajwi & Amafoto', icon: Volume2 },
           { id: 'content', label: 'Ibirimo & Amatangazo', icon: FileText },
+          { id: 'contacts', label: 'Kuvugisha Ubuyobozi', icon: PhoneCall },
           { id: 'comments', label: 'Ibitekerezo', icon: MessageSquare },
           { id: 'users', label: 'Abakoresha', icon: Users },
           { id: 'logs', label: 'Ubugenzuzi (Logs)', icon: Clock },
@@ -310,6 +314,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* 4. CONTENT (ANNOUNCEMENTS, EVENTS, DOCUMENTS, ARTICLES) */}
       {activeTab === 'content' && <AdminContentTab songs={songs} />}
+
+      {/* 4b. CHOIR LEADERSHIP CONTACTS MANAGEMENT */}
+      {activeTab === 'contacts' && (
+        <AdminContactTab onSuccessNotice={() => loadDashboardData()} />
+      )}
 
       {/* 5. COMMENTS MODERATION */}
       {activeTab === 'comments' && (
