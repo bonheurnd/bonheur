@@ -25,32 +25,53 @@
     <div id="root"></div>
     <script>
       // Suppress Vite HMR / WebSocket connection error overlay in dev iframe environment
-      window.addEventListener('error', function (event) {
-        if (
-          event.message &&
-          (event.message.includes('WebSocket') ||
-            event.message.includes('ws://') ||
-            event.message.includes('wss://') ||
-            event.message.includes('[vite]'))
-        ) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
+      (function() {
+        function shouldSuppress(msg) {
+          if (!msg) return false;
+          var str = String(msg);
+          return (
+            str.indexOf('WebSocket') !== -1 ||
+            str.indexOf('ws://') !== -1 ||
+            str.indexOf('wss://') !== -1 ||
+            str.indexOf('[vite]') !== -1 ||
+            str.indexOf('failed to connect to websocket') !== -1 ||
+            str.indexOf('server connection lost') !== -1
+          );
         }
-      }, true);
 
-      window.addEventListener('unhandledrejection', function (event) {
-        var reason = event.reason;
-        var text = (reason && (reason.message || reason.stack || String(reason))) || '';
-        if (
-          text.includes('WebSocket') ||
-          text.includes('ws://') ||
-          text.includes('wss://') ||
-          text.includes('[vite]')
-        ) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
+        window.addEventListener('error', function (event) {
+          if (shouldSuppress(event.message) || shouldSuppress(event.error)) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return false;
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event.reason;
+          var text = (reason && (reason.message || reason.stack || String(reason))) || '';
+          if (shouldSuppress(text)) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return false;
+          }
+        }, true);
+
+        // Hide any vite-error-overlay custom element if triggered by transient websocket disconnects
+        var observer = new MutationObserver(function(mutations) {
+          var overlay = document.querySelector('vite-error-overlay');
+          if (overlay && shouldSuppress(overlay.shadowRoot ? overlay.shadowRoot.innerHTML : overlay.innerHTML)) {
+            overlay.remove();
+          }
+        });
+        if (document.body) {
+          observer.observe(document.body, { childList: true, subtree: true });
+        } else {
+          document.addEventListener('DOMContentLoaded', function() {
+            observer.observe(document.body, { childList: true, subtree: true });
+          });
         }
-      }, true);
+      })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
