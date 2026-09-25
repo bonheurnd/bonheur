@@ -121,6 +121,127 @@ app.get('/api/contacts', (req, res) => {
 });
 
 // -------------------------------------------------------------
+// SECURE CHOIR MEMBER DIRECTORY API
+// -------------------------------------------------------------
+app.get('/api/members', requireAuth, (req: AuthRequest, res) => {
+  try {
+    const { voice, search } = req.query;
+    const currentUserId = req.user!.id;
+    const isAdminUser = isUserAdmin(req.user?.role);
+
+    let query = `
+      SELECT id, name, email, phone, role, avatar_url, choir_voice, choir_role, bio,
+             share_directory, share_phone, share_email, share_whatsapp, created_at
+      FROM users
+      WHERE (is_disabled = 0 OR is_disabled IS NULL)
+    `;
+    const params: any[] = [];
+
+    if (!isAdminUser) {
+      query += ` AND (share_directory = 1 OR id = ?)`;
+      params.push(currentUserId);
+    }
+
+    if (voice && typeof voice === 'string' && voice !== 'all') {
+      query += ` AND LOWER(choir_voice) = LOWER(?)`;
+      params.push(voice);
+    }
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      query += ` AND (name LIKE ? OR choir_voice LIKE ? OR choir_role LIKE ? OR bio LIKE ?)`;
+      params.push(term, term, term, term);
+    }
+
+    query += ` ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, name ASC`;
+    params.push(currentUserId);
+
+    const rawMembers = db.prepare(query).all(...params) as any[];
+
+    const members = rawMembers.map(m => {
+      const isSelf = m.id === currentUserId;
+      const canViewFull = isSelf || isAdminUser;
+
+      return {
+        id: m.id,
+        name: m.name,
+        role: m.role,
+        avatar_url: m.avatar_url || '',
+        choir_voice: m.choir_voice || 'Choir Member',
+        choir_role: m.choir_role || (m.role === 'super_admin' || m.role === 'admin' ? 'Choir Leadership' : 'Member'),
+        bio: m.bio || '',
+        created_at: m.created_at,
+        share_directory: Boolean(m.share_directory ?? 1),
+        share_phone: Boolean(m.share_phone ?? 1),
+        share_email: Boolean(m.share_email ?? 1),
+        share_whatsapp: Boolean(m.share_whatsapp ?? 1),
+        phone: (canViewFull || m.share_phone) ? (m.phone || '') : '',
+        email: (canViewFull || m.share_email) ? m.email : '',
+        whatsapp: (canViewFull || m.share_whatsapp) ? (m.phone || '') : '',
+        has_phone: Boolean(m.phone && (canViewFull || m.share_phone)),
+        has_email: Boolean(m.email && (canViewFull || m.share_email)),
+        has_whatsapp: Boolean(m.phone && (canViewFull || m.share_whatsapp)),
+        is_self: isSelf
+      };
+    });
+
+    res.json({
+      members,
+      total: members.length,
+      current_user: {
+        id: currentUserId,
+        is_admin: isAdminUser
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch member directory' });
+  }
+});
+
+app.put('/api/members/privacy', requireAuth, (req: AuthRequest, res) => {
+  try {
+    const { share_directory, share_phone, share_email, share_whatsapp } = req.body;
+    db.prepare(`
+      UPDATE users
+      SET share_directory = CASE WHEN ? IS NOT NULL THEN ? ELSE share_directory END,
+          share_phone = CASE WHEN ? IS NOT NULL THEN ? ELSE share_phone END,
+          share_email = CASE WHEN ? IS NOT NULL THEN ? ELSE share_email END,
+          share_whatsapp = CASE WHEN ? IS NOT NULL THEN ? ELSE share_whatsapp END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      share_directory !== undefined ? (share_directory ? 1 : 0) : null,
+      share_directory !== undefined ? (share_directory ? 1 : 0) : null,
+      share_phone !== undefined ? (share_phone ? 1 : 0) : null,
+      share_phone !== undefined ? (share_phone ? 1 : 0) : null,
+      share_email !== undefined ? (share_email ? 1 : 0) : null,
+      share_email !== undefined ? (share_email ? 1 : 0) : null,
+      share_whatsapp !== undefined ? (share_whatsapp ? 1 : 0) : null,
+      share_whatsapp !== undefined ? (share_whatsapp ? 1 : 0) : null,
+      req.user!.id
+    );
+
+    const updated = db.prepare(`
+      SELECT id, name, email, phone, choir_voice, choir_role,
+             share_directory, share_phone, share_email, share_whatsapp
+      FROM users WHERE id = ?
+    `).get(req.user!.id) as any;
+
+    res.json({
+      message: 'Igenzura ry\'umutekano n\'ibanga ryavuguruwe (Privacy settings updated)',
+      privacy: {
+        share_directory: Boolean(updated.share_directory),
+        share_phone: Boolean(updated.share_phone),
+        share_email: Boolean(updated.share_email),
+        share_whatsapp: Boolean(updated.share_whatsapp)
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update privacy settings' });
+  }
+});
+
+// -------------------------------------------------------------
 // AUTHENTICATION ROUTES
 // -------------------------------------------------------------
 app.post('/api/auth/register', (req, res) => {
@@ -738,7 +859,12 @@ app.post('/api/admin/verify', async (req, res) => {
 
 app.get('/api/auth/me', requireAuth, (req: AuthRequest, res) => {
   try {
-    const user = db.prepare('SELECT id, name, email, phone, role, avatar_url, created_at FROM users WHERE id = ?').get(req.user!.id) as any;
+    const user = db.prepare(`
+      SELECT id, name, email, phone, role, avatar_url, choir_voice, choir_role, bio,
+             share_directory, share_phone, share_email, share_whatsapp, created_at
+      FROM users
+      WHERE id = ?
+    `).get(req.user!.id) as any;
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -762,15 +888,59 @@ app.get('/api/auth/me', requireAuth, (req: AuthRequest, res) => {
 
 app.put('/api/auth/profile', requireAuth, (req: AuthRequest, res) => {
   try {
-    const { name, phone, avatar_url } = req.body;
+    const {
+      name,
+      phone,
+      avatar_url,
+      choir_voice,
+      choir_role,
+      bio,
+      share_directory,
+      share_phone,
+      share_email,
+      share_whatsapp
+    } = req.body;
+
     db.prepare(`
       UPDATE users
-      SET name = COALESCE(?, name), phone = COALESCE(?, phone), avatar_url = COALESCE(?, avatar_url), updated_at = CURRENT_TIMESTAMP
+      SET name = COALESCE(?, name),
+          phone = COALESCE(?, phone),
+          avatar_url = COALESCE(?, avatar_url),
+          choir_voice = COALESCE(?, choir_voice),
+          choir_role = COALESCE(?, choir_role),
+          bio = COALESCE(?, bio),
+          share_directory = CASE WHEN ? IS NOT NULL THEN ? ELSE share_directory END,
+          share_phone = CASE WHEN ? IS NOT NULL THEN ? ELSE share_phone END,
+          share_email = CASE WHEN ? IS NOT NULL THEN ? ELSE share_email END,
+          share_whatsapp = CASE WHEN ? IS NOT NULL THEN ? ELSE share_whatsapp END,
+          updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(name, phone, avatar_url, req.user!.id);
+    `).run(
+      name,
+      phone,
+      avatar_url,
+      choir_voice,
+      choir_role,
+      bio,
+      share_directory !== undefined ? (share_directory ? 1 : 0) : null,
+      share_directory !== undefined ? (share_directory ? 1 : 0) : null,
+      share_phone !== undefined ? (share_phone ? 1 : 0) : null,
+      share_phone !== undefined ? (share_phone ? 1 : 0) : null,
+      share_email !== undefined ? (share_email ? 1 : 0) : null,
+      share_email !== undefined ? (share_email ? 1 : 0) : null,
+      share_whatsapp !== undefined ? (share_whatsapp ? 1 : 0) : null,
+      share_whatsapp !== undefined ? (share_whatsapp ? 1 : 0) : null,
+      req.user!.id
+    );
 
-    const updated = db.prepare('SELECT id, name, email, phone, role, avatar_url FROM users WHERE id = ?').get(req.user!.id);
-    res.json({ message: 'Umwirondoro wavuguruwe (Profile updated)', user: updated });
+    const updated = db.prepare(`
+      SELECT id, name, email, phone, role, avatar_url, choir_voice, choir_role, bio,
+             share_directory, share_phone, share_email, share_whatsapp
+      FROM users
+      WHERE id = ?
+    `).get(req.user!.id);
+
+    res.json({ message: 'Umwirondoro n\'amahitamo byavuguruwe (Profile and privacy preferences updated)', user: updated });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update profile' });
   }

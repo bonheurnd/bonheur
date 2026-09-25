@@ -14,6 +14,10 @@ import {
   CheckCircle,
   Bell,
   BookOpen,
+  Users,
+  Eye,
+  EyeOff,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface ProfileScreenProps {
@@ -37,6 +41,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '');
+  const [choirVoice, setChoirVoice] = useState(user?.choir_voice || 'Choir Member');
+  const [bio, setBio] = useState(user?.bio || '');
+  const [shareDirectory, setShareDirectory] = useState(user?.share_directory !== undefined ? Boolean(user.share_directory) : true);
+  const [sharePhone, setSharePhone] = useState(user?.share_phone !== undefined ? Boolean(user.share_phone) : true);
+  const [shareEmail, setShareEmail] = useState(user?.share_email !== undefined ? Boolean(user.share_email) : true);
+  const [shareWhatsapp, setShareWhatsapp] = useState(user?.share_whatsapp !== undefined ? Boolean(user.share_whatsapp) : true);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Change password state
@@ -70,6 +80,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     if (user) {
       setName(user.name);
       setPhone(user.phone || '');
+      setChoirVoice(user.choir_voice || 'Choir Member');
+      setBio(user.bio || '');
+      setShareDirectory(user.share_directory !== undefined ? Boolean(user.share_directory) : true);
+      setSharePhone(user.share_phone !== undefined ? Boolean(user.share_phone) : true);
+      setShareEmail(user.share_email !== undefined ? Boolean(user.share_email) : true);
+      setShareWhatsapp(user.share_whatsapp !== undefined ? Boolean(user.share_whatsapp) : true);
       loadUserData();
     }
   }, [user]);
@@ -77,7 +93,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await updateProfile({ name, phone });
+      await updateProfile({
+        name,
+        phone,
+        choir_voice: choirVoice,
+        bio,
+        share_directory: shareDirectory,
+        share_phone: sharePhone,
+        share_email: shareEmail,
+        share_whatsapp: shareWhatsapp,
+      });
       setIsEditing(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);

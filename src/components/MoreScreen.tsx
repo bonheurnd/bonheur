@@ -21,6 +21,8 @@ import {
   CheckCircle2,
   RefreshCw,
   HardDrive,
+  Users,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface MoreScreenProps {
@@ -211,6 +213,35 @@ export const MoreScreen: React.FC<MoreScreenProps> = ({
               </span>
               <span className="text-[11px] text-slate-500">
                 {user ? user.email : 'Injira cyangwa iyandikishe muri Korali'}
+              </span>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-slate-400" />
+        </button>
+
+        {/* Secure Choir Member Directory */}
+        <button
+          onClick={() => {
+            if (user) onNavigateToTab('directory');
+            else onOpenAuth();
+          }}
+          className="w-full p-4 hover:bg-slate-50 flex items-center justify-between transition-colors text-left"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-900 flex items-center justify-center">
+              <Users className="w-5 h-5 text-indigo-900" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-900 block">
+                  Igitabo cy'Abaririmbyi (Member Directory)
+                </span>
+                <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[9px] font-extrabold rounded uppercase">
+                  Umutekano
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500">
+                Amakuru n'inzira zo kuvugana n'abandi baririmbyi b'itorero
               </span>
             </div>
           </div>

@@ -7,6 +7,13 @@ export interface User {
   phone?: string;
   role: UserRole;
   avatar_url?: string;
+  choir_voice?: string;
+  choir_role?: string;
+  bio?: string;
+  share_directory?: boolean | number;
+  share_phone?: boolean | number;
+  share_email?: boolean | number;
+  share_whatsapp?: boolean | number;
   is_disabled?: number | boolean;
   comments_count?: number;
   donations_count?: number;
@@ -15,7 +22,28 @@ export interface User {
 
 export interface UserProfile extends User {
   full_name?: string;
-  choir_voice?: string;
+}
+
+export interface ChoirMemberDirectoryItem {
+  id: string;
+  name: string;
+  role: string;
+  avatar_url?: string;
+  choir_voice: string;
+  choir_role: string;
+  bio?: string;
+  created_at?: string;
+  share_directory: boolean;
+  share_phone: boolean;
+  share_email: boolean;
+  share_whatsapp: boolean;
+  phone?: string;
+  email?: string;
+  whatsapp?: string;
+  has_phone: boolean;
+  has_email: boolean;
+  has_whatsapp: boolean;
+  is_self?: boolean;
 }
 
 export interface SongCategory {

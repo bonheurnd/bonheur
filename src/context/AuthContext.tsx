@@ -16,7 +16,24 @@ interface AuthContextType {
   lastDiagnosticReport: AdminLoginDiagnosticReport | null;
   register: (name: string, email: string, password: string, phone?: string) => Promise<void>;
   logout: () => void;
-  updateProfile: (data: { name?: string; phone?: string; avatar_url?: string }) => Promise<void>;
+  updateProfile: (data: {
+    name?: string;
+    phone?: string;
+    avatar_url?: string;
+    choir_voice?: string;
+    choir_role?: string;
+    bio?: string;
+    share_directory?: boolean;
+    share_phone?: boolean;
+    share_email?: boolean;
+    share_whatsapp?: boolean;
+  }) => Promise<void>;
+  updatePrivacy: (data: {
+    share_directory?: boolean;
+    share_phone?: boolean;
+    share_email?: boolean;
+    share_whatsapp?: boolean;
+  }) => Promise<void>;
   deleteAccount: () => Promise<void>;
   refreshUser: () => Promise<void>;
   isAdmin: boolean;
@@ -144,7 +161,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const updateProfile = async (data: { name?: string; phone?: string; avatar_url?: string }) => {
+  const updateProfile = async (data: {
+    name?: string;
+    phone?: string;
+    avatar_url?: string;
+    choir_voice?: string;
+    choir_role?: string;
+    bio?: string;
+    share_directory?: boolean;
+    share_phone?: boolean;
+    share_email?: boolean;
+    share_whatsapp?: boolean;
+  }) => {
     if (!token) return;
     const res = await safeFetchJson<{ user: User }>('/api/auth/profile', {
       method: 'PUT',
@@ -160,6 +188,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     setUser(res.data.user);
+  };
+
+  const updatePrivacy = async (data: {
+    share_directory?: boolean;
+    share_phone?: boolean;
+    share_email?: boolean;
+    share_whatsapp?: boolean;
+  }) => {
+    if (!token) return;
+    const res = await safeFetchJson<{ privacy?: any }>('/api/members/privacy', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!res.ok) {
+      throw new Error(res.errorMessage || 'Failed to update privacy settings');
+    }
+
+    await refreshUser();
   };
 
   const deleteAccount = async () => {
@@ -198,6 +249,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         updateProfile,
+        updatePrivacy,
         deleteAccount,
         refreshUser,
         isAdmin,

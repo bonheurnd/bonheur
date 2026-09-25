@@ -389,6 +389,13 @@ export function initDatabase() {
   }
 
   safeAddColumn('users', 'is_disabled INTEGER DEFAULT 0');
+  safeAddColumn('users', 'choir_voice TEXT'); // 'Soprano', 'Alto', 'Tenor', 'Bass', 'Musician', 'Director'
+  safeAddColumn('users', 'choir_role TEXT'); // 'Member', 'Voice Leader', 'Pianist', 'Conductor', etc.
+  safeAddColumn('users', 'bio TEXT');
+  safeAddColumn('users', 'share_directory INTEGER DEFAULT 1'); // 1 = opted-in to member directory, 0 = opted-out
+  safeAddColumn('users', 'share_phone INTEGER DEFAULT 1'); // 1 = share phone with members, 0 = hide phone
+  safeAddColumn('users', 'share_email INTEGER DEFAULT 1'); // 1 = share email with members, 0 = hide email
+  safeAddColumn('users', 'share_whatsapp INTEGER DEFAULT 1'); // 1 = share whatsapp with members, 0 = hide whatsapp
   safeAddColumn('songs', "status TEXT DEFAULT 'published'");
   safeAddColumn('songs', 'is_deleted INTEGER DEFAULT 0');
   safeAddColumn('songs', 'deleted_at DATETIME');
@@ -516,21 +523,116 @@ export function initDatabase() {
     );
   }
 
-  // Seed initial Member user for testing
-  const existingMember = db.prepare('SELECT id FROM users WHERE email = ?').get('member@lalumierechoir.rw');
-  if (!existingMember) {
-    const defaultMemberHash = bcrypt.hashSync('Worship@2026', 10);
-    db.prepare(`
-      INSERT INTO users (id, name, email, password_hash, phone, role)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      'usr_member_default',
-      'Worshipper David',
-      'member@lalumierechoir.rw',
-      defaultMemberHash,
-      '+250788112233',
-      'supporter'
-    );
+  // Seed initial Member users for testing the secure directory
+  const choirSeedMembers = [
+    {
+      id: 'usr_member_epiphani',
+      name: 'HAGENAYO Epiphani',
+      email: 'epiphani@lalumierechoir.rw',
+      phone: '+250783484524',
+      role: 'choir_member',
+      choir_voice: 'Tenor',
+      choir_role: 'Choir Leader / President',
+      bio: 'Leading worship and choir operations with grace and devotion.',
+      share_directory: 1,
+      share_phone: 1,
+      share_email: 1,
+      share_whatsapp: 1,
+    },
+    {
+      id: 'usr_member_david',
+      name: 'David Niyonkuru',
+      email: 'member@lalumierechoir.rw',
+      phone: '+250788112233',
+      role: 'choir_member',
+      choir_voice: 'Bass',
+      choir_role: 'Bass Section Lead',
+      bio: 'Gospel worshipper and bass section leader since 2018.',
+      share_directory: 1,
+      share_phone: 1,
+      share_email: 1,
+      share_whatsapp: 1,
+    },
+    {
+      id: 'usr_member_grace',
+      name: 'Grace Mutoni',
+      email: 'grace.mutoni@lalumierechoir.rw',
+      phone: '+250788556677',
+      role: 'choir_member',
+      choir_voice: 'Soprano',
+      choir_role: 'Soloist & Soprano',
+      bio: 'Singing with joy to the Lord at ADEPR Nyanza.',
+      share_directory: 1,
+      share_phone: 1,
+      share_email: 1,
+      share_whatsapp: 1,
+    },
+    {
+      id: 'usr_member_esther',
+      name: 'Esther Uwase',
+      email: 'esther.uwase@lalumierechoir.rw',
+      phone: '+250788778899',
+      role: 'choir_member',
+      choir_voice: 'Alto',
+      choir_role: 'Alto Section',
+      bio: 'Passionate about worship harmonies and evangelism.',
+      share_directory: 1,
+      share_phone: 1,
+      share_email: 1,
+      share_whatsapp: 1,
+    },
+    {
+      id: 'usr_member_samuel',
+      name: 'Samuel Mugisha',
+      email: 'samuel.pianist@lalumierechoir.rw',
+      phone: '+250788445566',
+      role: 'choir_member',
+      choir_voice: 'Musician',
+      choir_role: 'Keyboardist & Arranger',
+      bio: 'Praise pianist and acoustic arrangements.',
+      share_directory: 1,
+      share_phone: 1,
+      share_email: 1,
+      share_whatsapp: 1,
+    },
+    {
+      id: 'usr_member_private',
+      name: 'Patrick Habimana',
+      email: 'patrick.private@lalumierechoir.rw',
+      phone: '+250788990011',
+      role: 'choir_member',
+      choir_voice: 'Tenor',
+      choir_role: 'Choir Member',
+      bio: 'Member wishing to keep contact details private.',
+      share_directory: 0, // OPTED OUT of directory
+      share_phone: 0,
+      share_email: 0,
+      share_whatsapp: 0,
+    }
+  ];
+
+  const defaultMemberPassHash = bcrypt.hashSync('Worship@2026', 10);
+  for (const m of choirSeedMembers) {
+    const existing = db.prepare('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?').get(m.email) as any;
+    if (existing) {
+      db.prepare(`
+        UPDATE users
+        SET choir_voice = COALESCE(choir_voice, ?),
+            choir_role = COALESCE(choir_role, ?),
+            bio = COALESCE(bio, ?),
+            share_directory = COALESCE(share_directory, ?),
+            share_phone = COALESCE(share_phone, ?),
+            share_email = COALESCE(share_email, ?),
+            share_whatsapp = COALESCE(share_whatsapp, ?),
+            role = 'choir_member'
+        WHERE id = ?
+      `).run(m.choir_voice, m.choir_role, m.bio, m.share_directory, m.share_phone, m.share_email, m.share_whatsapp, existing.id);
+    } else {
+      db.prepare(`
+        INSERT INTO users (id, name, email, password_hash, phone, role, choir_voice, choir_role, bio, share_directory, share_phone, share_email, share_whatsapp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(m.id, m.name, m.email, defaultMemberPassHash, m.phone, m.role, m.choir_voice, m.choir_role, m.bio, m.share_directory, m.share_phone, m.share_email, m.share_whatsapp);
+    }
   }
 
   // Security Hardening: Ensure all accounts in the database use valid bcrypt password hashes
