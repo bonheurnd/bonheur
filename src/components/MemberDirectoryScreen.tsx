@@ -421,7 +421,7 @@ export const MemberDirectoryScreen: React.FC<MemberDirectoryScreenProps> = ({
                     )}
 
                     {/* WhatsApp button */}
-                    {member.has_whatsapp && (
+                    {member.has_whatsapp && member.whatsapp && (
                       <a
                         href={`https://wa.me/${member.whatsapp.replace(/[^0-9]/g, '')}`}
                         target="_blank"

@@ -395,16 +395,19 @@ app.post('/api/admin/social-media/reorder', requireAdmin, (req: AuthRequest, res
       return res.status(400).json({ error: 'Items array is required' });
     }
 
-    const updateStmt = db.prepare('UPDATE social_media_links SET display_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-    const updateMany = db.transaction((linksToUpdate: Array<{ id: string; display_order: number }>) => {
-      for (const item of linksToUpdate) {
+    db.exec('BEGIN TRANSACTION;');
+    try {
+      const updateStmt = db.prepare('UPDATE social_media_links SET display_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+      for (const item of items) {
         if (item.id && typeof item.display_order === 'number') {
           updateStmt.run(item.display_order, item.id);
         }
       }
-    });
-
-    updateMany(items);
+      db.exec('COMMIT;');
+    } catch (txErr) {
+      db.exec('ROLLBACK;');
+      throw txErr;
+    }
 
     const updatedList = db.prepare(`
       SELECT id, platform, display_name, url, icon, is_enabled, display_order, description, created_at, updated_at
@@ -1249,7 +1252,7 @@ app.get('/api/songs', optionalAuth, (req: AuthRequest, res) => {
   }
 });
 
-app.get('/api/songs/categories', (req, res) => {
+app.get(['/api/songs/categories', '/api/categories'], (req, res) => {
   try {
     const categories = db.prepare(`
       SELECT sc.*, COUNT(s.id) as song_count
