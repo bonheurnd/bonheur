@@ -16,6 +16,7 @@ import {
   Shield,
   FileCheck,
   PhoneCall,
+  Share2,
 } from 'lucide-react';
 import { AdminMetrics, ActivityLog } from '../../types';
 
@@ -118,6 +119,16 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
               <Calendar className="w-4 h-4" />
             </div>
             <span>Igikorwa (Event)</span>
+          </button>
+
+          <button
+            onClick={() => onNavigateTab('social')}
+            className="p-3 bg-blue-50/70 hover:bg-blue-100 text-blue-950 rounded-2xl text-xs font-bold flex items-center gap-2 border border-blue-200/70 transition-colors text-left"
+          >
+            <div className="w-7 h-7 rounded-xl bg-blue-950 text-amber-300 flex items-center justify-center shrink-0">
+              <Share2 className="w-4 h-4 text-amber-300" />
+            </div>
+            <span>Imbuga Nkoranyambaga</span>
           </button>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { useBranding } from '../context/BrandingContext';
 import { ChoirLogo } from './ChoirLogo';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ContactSection } from './ContactSection';
+import { SocialMediaSection } from './SocialMediaSection';
 import {
   getAllOfflineSongs,
   downloadAllSongsForOffline,
@@ -337,6 +338,9 @@ export const MoreScreen: React.FC<MoreScreenProps> = ({
 
       {/* Contact Choir Leadership Section */}
       <ContactSection />
+
+      {/* Official Choir Social Media Section */}
+      <SocialMediaSection />
 
       {/* Admin Portal Gateway Link */}
       <div className="pt-1 pb-4 text-center">

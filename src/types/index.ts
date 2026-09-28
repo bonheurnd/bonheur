@@ -46,6 +46,19 @@ export interface ChoirMemberDirectoryItem {
   is_self?: boolean;
 }
 
+export interface SocialMediaLink {
+  id: string;
+  platform: string; // 'youtube', 'facebook', 'instagram', 'tiktok', 'whatsapp', 'twitter', 'website', 'other'
+  display_name: string;
+  url: string;
+  icon?: string;
+  is_enabled: number | boolean;
+  display_order: number;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface SongCategory {
   id: string;
   name: string;

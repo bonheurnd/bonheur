@@ -28,6 +28,7 @@ import {
   CheckCircle,
   ExternalLink,
   PhoneCall,
+  Share2,
 } from 'lucide-react';
 
 import { AdminLoginPortal } from './admin/AdminLoginPortal';
@@ -39,6 +40,7 @@ import { AdminCommentsTab } from './admin/AdminCommentsTab';
 import { AdminUsersTab } from './admin/AdminUsersTab';
 import { AdminLogsTab } from './admin/AdminLogsTab';
 import { AdminContactTab } from './admin/AdminContactTab';
+import { AdminSocialMediaTab } from './admin/AdminSocialMediaTab';
 import { safeFetchJson } from '../utils/api';
 
 interface AdminDashboardProps {
@@ -59,6 +61,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'media'
     | 'content'
     | 'contacts'
+    | 'social'
     | 'comments'
     | 'users'
     | 'logs'
@@ -258,6 +261,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'media', label: 'Amajwi & Amafoto', icon: Volume2 },
           { id: 'content', label: 'Ibirimo & Amatangazo', icon: FileText },
           { id: 'contacts', label: 'Kuvugisha Ubuyobozi', icon: PhoneCall },
+          { id: 'social', label: 'Imbuga Nkoranyambaga', icon: Share2 },
           { id: 'comments', label: 'Ibitekerezo', icon: MessageSquare },
           { id: 'users', label: 'Abakoresha', icon: Users },
           { id: 'logs', label: 'Ubugenzuzi (Logs)', icon: Clock },
@@ -319,6 +323,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {activeTab === 'contacts' && (
         <AdminContactTab onSuccessNotice={() => loadDashboardData()} />
       )}
+
+      {/* 4c. SOCIAL MEDIA PLATFORMS MANAGEMENT */}
+      {activeTab === 'social' && <AdminSocialMediaTab />}
 
       {/* 5. COMMENTS MODERATION */}
       {activeTab === 'comments' && (

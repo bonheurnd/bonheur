@@ -370,6 +370,20 @@ export function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 23. Social Media Platforms & Official Links
+    CREATE TABLE IF NOT EXISTS social_media_links (
+      id TEXT PRIMARY KEY,
+      platform TEXT NOT NULL, -- 'youtube', 'facebook', 'instagram', 'tiktok', 'whatsapp', 'twitter', 'website', 'other'
+      display_name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      icon TEXT,
+      is_enabled INTEGER DEFAULT 1,
+      display_order INTEGER DEFAULT 0,
+      description TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Indexes for high performance
     CREATE INDEX IF NOT EXISTS idx_songs_status ON songs(release_status);
     CREATE INDEX IF NOT EXISTS idx_songs_category ON songs(category_id);
@@ -726,6 +740,88 @@ export function initDatabase() {
         'Do you have questions, feedback, or need information about La Lumiere Choir? Get in touch with our leadership team using the options below.'
       )
     `).run();
+  }
+
+  // Seed initial Social Media Links
+  const seedSocialLinks = [
+    {
+      id: 'soc_youtube',
+      platform: 'youtube',
+      display_name: 'YouTube Channel',
+      url: 'https://www.youtube.com/@LaLumiereChoirADEPRNyanza',
+      icon: 'youtube',
+      is_enabled: 1,
+      display_order: 1,
+      description: 'Reba indirimbo nshya, ibitaramo n\'amashusho yose ya La Lumiere Choir',
+    },
+    {
+      id: 'soc_whatsapp',
+      platform: 'whatsapp',
+      display_name: 'WhatsApp Community',
+      url: 'https://chat.whatsapp.com/invite/lalumierechoir',
+      icon: 'whatsapp',
+      is_enabled: 1,
+      display_order: 2,
+      description: 'Injira muri kominote ya WhatsApp ya Korali uhabwe amakuru ako kanya',
+    },
+    {
+      id: 'soc_instagram',
+      platform: 'instagram',
+      display_name: 'Instagram (@lalumierechoir)',
+      url: 'https://www.instagram.com/lalumierechoir',
+      icon: 'instagram',
+      is_enabled: 1,
+      display_order: 3,
+      description: 'Amafoto y\'abaririmbyi, ibihe by\'amashimwe n\'amasengesho',
+    },
+    {
+      id: 'soc_facebook',
+      platform: 'facebook',
+      display_name: 'Facebook Page',
+      url: 'https://www.facebook.com/lalumierechoir',
+      icon: 'facebook',
+      is_enabled: 1,
+      display_order: 4,
+      description: 'Ipaji yemewe ya La Lumiere Choir ADEPR Nyanza',
+    },
+    {
+      id: 'soc_tiktok',
+      platform: 'tiktok',
+      display_name: 'TikTok (@lalumierechoir)',
+      url: 'https://www.tiktok.com/@lalumierechoir',
+      icon: 'tiktok',
+      is_enabled: 1,
+      display_order: 5,
+      description: 'Uduce duto tw\'indirimbo, imyitozo n\'amashusho meza',
+    },
+    {
+      id: 'soc_twitter',
+      platform: 'twitter',
+      display_name: 'X (Twitter)',
+      url: 'https://x.com/lalumierechoir',
+      icon: 'twitter',
+      is_enabled: 1,
+      display_order: 6,
+      description: 'Amakuru mashya n\'amatangazo ku rubuga rwa X',
+    },
+    {
+      id: 'soc_website',
+      platform: 'website',
+      display_name: 'Official Website',
+      url: 'https://www.lalumierechoir.rw',
+      icon: 'website',
+      is_enabled: 1,
+      display_order: 7,
+      description: 'Urubuga rwemewe rw\'itorero n\'umurimo w\'Imana',
+    }
+  ];
+
+  const insertSocial = db.prepare(`
+    INSERT OR IGNORE INTO social_media_links (id, platform, display_name, url, icon, is_enabled, display_order, description)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const s of seedSocialLinks) {
+    insertSocial.run(s.id, s.platform, s.display_name, s.url, s.icon, s.is_enabled, s.display_order, s.description);
   }
 
   // Seed the 4 official categories and 92 authentic songs from LA_LUMIERE_CHORALE_SONGS_APP_READY.json

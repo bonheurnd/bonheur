@@ -242,6 +242,184 @@ app.put('/api/members/privacy', requireAuth, (req: AuthRequest, res) => {
 });
 
 // -------------------------------------------------------------
+// OFFICIAL SOCIAL MEDIA LINKS API
+// -------------------------------------------------------------
+
+// Helper to validate and normalize URL
+function validateAndNormalizeUrl(rawUrl: string): { valid: boolean; normalized?: string; error?: string } {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return { valid: false, error: 'URL is required' };
+  }
+  const trimmed = rawUrl.trim();
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { valid: false, error: 'Please enter a valid HTTP or HTTPS URL (Ugomba gukoresha https:// cyangwa http://)' };
+    }
+    return { valid: true, normalized: parsed.toString() };
+  } catch (e) {
+    return { valid: false, error: 'Please enter a valid social media URL (Uru rubuga si rwo, reba neza https://...)' };
+  }
+}
+
+// Public: Get all enabled social media links ordered by display_order
+app.get('/api/social-media', (_req, res) => {
+  try {
+    const links = db.prepare(`
+      SELECT id, platform, display_name, url, icon, is_enabled, display_order, description
+      FROM social_media_links
+      WHERE is_enabled = 1
+      ORDER BY display_order ASC, created_at ASC
+    `).all();
+    res.json(links);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load social media links' });
+  }
+});
+
+// Admin: Get all social media links (including disabled ones)
+app.get('/api/admin/social-media', requireAdmin, (_req, res) => {
+  try {
+    const links = db.prepare(`
+      SELECT id, platform, display_name, url, icon, is_enabled, display_order, description, created_at, updated_at
+      FROM social_media_links
+      ORDER BY display_order ASC, created_at ASC
+    `).all();
+    res.json(links);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load admin social media links' });
+  }
+});
+
+// Admin: Create new social media link
+app.post('/api/admin/social-media', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { platform, display_name, url, icon, is_enabled, display_order, description } = req.body;
+    if (!platform || !display_name || !url) {
+      return res.status(400).json({ error: 'Platform, display name, and URL are required' });
+    }
+
+    const valResult = validateAndNormalizeUrl(url);
+    if (!valResult.valid) {
+      return res.status(400).json({ error: valResult.error });
+    }
+
+    const id = 'soc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const order = typeof display_order === 'number' ? display_order : 0;
+    const enabled = is_enabled !== undefined ? (is_enabled ? 1 : 0) : 1;
+    const platformClean = String(platform).trim().toLowerCase();
+    const iconClean = icon ? String(icon).trim() : platformClean;
+
+    db.prepare(`
+      INSERT INTO social_media_links (id, platform, display_name, url, icon, is_enabled, display_order, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(id, platformClean, display_name.trim(), valResult.normalized, iconClean, enabled, order, description ? description.trim() : null);
+
+    const created = db.prepare('SELECT * FROM social_media_links WHERE id = ?').get(id);
+    res.status(201).json(created);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to create social media link' });
+  }
+});
+
+// Admin: Update existing social media link
+app.put('/api/admin/social-media/:id', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { platform, display_name, url, icon, is_enabled, display_order, description } = req.body;
+
+    const existing = db.prepare('SELECT id FROM social_media_links WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Social media link not found' });
+    }
+
+    let normalizedUrl: string | undefined;
+    if (url !== undefined) {
+      const valResult = validateAndNormalizeUrl(url);
+      if (!valResult.valid) {
+        return res.status(400).json({ error: valResult.error });
+      }
+      normalizedUrl = valResult.normalized;
+    }
+
+    db.prepare(`
+      UPDATE social_media_links
+      SET platform = COALESCE(?, platform),
+          display_name = COALESCE(?, display_name),
+          url = COALESCE(?, url),
+          icon = COALESCE(?, icon),
+          is_enabled = CASE WHEN ? IS NOT NULL THEN ? ELSE is_enabled END,
+          display_order = COALESCE(?, display_order),
+          description = CASE WHEN ? IS NOT NULL THEN ? ELSE description END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      platform !== undefined ? String(platform).trim().toLowerCase() : null,
+      display_name !== undefined ? String(display_name).trim() : null,
+      normalizedUrl ?? null,
+      icon !== undefined ? String(icon).trim() : null,
+      is_enabled !== undefined ? (is_enabled ? 1 : 0) : null,
+      is_enabled !== undefined ? (is_enabled ? 1 : 0) : null,
+      typeof display_order === 'number' ? display_order : null,
+      description !== undefined ? description : null,
+      description !== undefined ? description : null,
+      id
+    );
+
+    const updated = db.prepare('SELECT * FROM social_media_links WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update social media link' });
+  }
+});
+
+// Admin: Delete social media link
+app.delete('/api/admin/social-media/:id', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const info = db.prepare('DELETE FROM social_media_links WHERE id = ?').run(id);
+    if (info.changes === 0) {
+      return res.status(404).json({ error: 'Social media link not found' });
+    }
+    res.json({ message: 'Social media link deleted successfully', id });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to delete social media link' });
+  }
+});
+
+// Admin: Bulk Reorder social media links
+app.post('/api/admin/social-media/reorder', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { items } = req.body; // array of { id: string, display_order: number }
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: 'Items array is required' });
+    }
+
+    const updateStmt = db.prepare('UPDATE social_media_links SET display_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+    const updateMany = db.transaction((linksToUpdate: Array<{ id: string; display_order: number }>) => {
+      for (const item of linksToUpdate) {
+        if (item.id && typeof item.display_order === 'number') {
+          updateStmt.run(item.display_order, item.id);
+        }
+      }
+    });
+
+    updateMany(items);
+
+    const updatedList = db.prepare(`
+      SELECT id, platform, display_name, url, icon, is_enabled, display_order, description, created_at, updated_at
+      FROM social_media_links
+      ORDER BY display_order ASC, created_at ASC
+    `).all();
+
+    res.json({ success: true, links: updatedList });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to reorder social media links' });
+  }
+});
+
+
+// -------------------------------------------------------------
 // AUTHENTICATION ROUTES
 // -------------------------------------------------------------
 app.post('/api/auth/register', (req, res) => {
