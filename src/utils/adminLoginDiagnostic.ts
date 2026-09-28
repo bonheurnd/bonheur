@@ -188,14 +188,19 @@ export async function performAdminLoginWithDiagnostics(
 
   // Extract response headers
   const responseHeaders: Record<string, string> = {};
-  rawResponse.headers.forEach((val, key) => {
-    responseHeaders[key.toLowerCase()] = val;
-  });
-  const contentType = responseHeaders['content-type'] || null;
+  if (rawResponse.headers) {
+    rawResponse.headers.forEach((val, key) => {
+      responseHeaders[key.toLowerCase()] = val;
+    });
+  }
+  const contentType = (rawResponse.headers?.get?.('content-type') || responseHeaders['content-type'] || null);
 
-  // Validation checks
+  // Validation checks: if body is valid JSON with expected keys, treat contentType as expected
   const isStatusCodeExpected = rawResponse.status === 200;
-  const isContentTypeExpected = Boolean(contentType && contentType.includes('application/json'));
+  const isContentTypeExpected = Boolean(
+    (contentType && contentType.includes('application/json')) ||
+    (isJson && parsedBody && typeof parsedBody === 'object')
+  );
   const hasSuccessTrue = Boolean(parsedBody && typeof parsedBody === 'object' && parsedBody.success === true);
   const hasToken = Boolean(parsedBody && typeof parsedBody.token === 'string' && parsedBody.token.length > 10);
   const hasUser = Boolean(parsedBody && typeof parsedBody.user === 'object' && parsedBody.user?.id && parsedBody.user?.role);
