@@ -1,4 +1,5 @@
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
@@ -118,6 +119,18 @@ app.get('/api/contacts', (req, res) => {
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch choir leadership contact details' });
   }
+});
+
+// -------------------------------------------------------------
+// HEALTH CHECK
+// -------------------------------------------------------------
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    service: 'La Lumiere Choir API',
+    uptime: process.uptime(),
+  });
 });
 
 // -------------------------------------------------------------
@@ -3481,11 +3494,14 @@ async function startServer() {
     console.warn('[Admin Account Setup Error] Failed during startup setup:', initErr);
   }
 
+  const server = http.createServer(app);
+
   if (process.env.NODE_ENV !== 'production') {
+    const isHmrDisabled = true; // Completely disable HMR in container preview to stop failed WebSocket attempts
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR === 'true' ? false : undefined,
+        hmr: false,
       },
       appType: 'spa',
     });
@@ -3517,7 +3533,7 @@ async function startServer() {
     });
   }
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`La Lumiere Choir App running at http://0.0.0.0:${PORT}`);
   });
 

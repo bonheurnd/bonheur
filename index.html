@@ -20,59 +20,94 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet">
-  </head>
-  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-amber-500 selection:text-white">
-    <div id="root"></div>
     <script>
-      // Suppress Vite HMR / WebSocket connection error overlay in dev iframe environment
+      // Early suppression of Vite HMR / WebSocket connection errors in sandbox/iframe environment
       (function() {
-        function shouldSuppress(msg) {
-          if (!msg) return false;
-          var str = String(msg);
+        function shouldSuppress(value) {
+          if (!value) return false;
+          var str = '';
+          if (typeof value === 'string') {
+            str = value;
+          } else if (value instanceof Error) {
+            str = (value.message || '') + ' ' + (value.stack || '') + ' ' + (value.name || '');
+          } else if (typeof value === 'object') {
+            try {
+              str = JSON.stringify(value);
+            } catch (e) {
+              str = String(value);
+            }
+          } else {
+            str = String(value);
+          }
+          var lower = str.toLowerCase();
           return (
-            str.indexOf('WebSocket') !== -1 ||
-            str.indexOf('ws://') !== -1 ||
-            str.indexOf('wss://') !== -1 ||
-            str.indexOf('[vite]') !== -1 ||
-            str.indexOf('failed to connect to websocket') !== -1 ||
-            str.indexOf('server connection lost') !== -1
+            lower.indexOf('websocket') !== -1 ||
+            lower.indexOf('ws://') !== -1 ||
+            lower.indexOf('wss://') !== -1 ||
+            lower.indexOf('[vite]') !== -1 ||
+            lower.indexOf('failed to connect to websocket') !== -1 ||
+            lower.indexOf('closed without opened') !== -1 ||
+            lower.indexOf('server connection lost') !== -1
           );
         }
 
-        window.addEventListener('error', function (event) {
-          if (shouldSuppress(event.message) || shouldSuppress(event.error)) {
+        // Intercept global window error events in capture phase
+        window.addEventListener('error', function(event) {
+          if (
+            shouldSuppress(event.message) ||
+            shouldSuppress(event.error) ||
+            (event.target && event.target.tagName === 'SCRIPT' && shouldSuppress(event.target.src))
+          ) {
             event.preventDefault();
             event.stopImmediatePropagation();
-            return false;
+            return true;
           }
         }, true);
 
-        window.addEventListener('unhandledrejection', function (event) {
+        // Intercept unhandled promise rejections
+        window.addEventListener('unhandledrejection', function(event) {
           var reason = event.reason;
-          var text = (reason && (reason.message || reason.stack || String(reason))) || '';
-          if (shouldSuppress(text)) {
+          if (shouldSuppress(reason)) {
             event.preventDefault();
             event.stopImmediatePropagation();
-            return false;
+            return true;
           }
         }, true);
+
+        // Intercept console.error to avoid polluting error trackers with expected iframe websocket drops
+        var origConsoleError = console.error;
+        console.error = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (shouldSuppress(arguments[i])) {
+              return;
+            }
+          }
+          return origConsoleError.apply(console, arguments);
+        };
 
         // Hide any vite-error-overlay custom element if triggered by transient websocket disconnects
-        var observer = new MutationObserver(function(mutations) {
+        var observer = new MutationObserver(function() {
           var overlay = document.querySelector('vite-error-overlay');
-          if (overlay && shouldSuppress(overlay.shadowRoot ? overlay.shadowRoot.innerHTML : overlay.innerHTML)) {
-            overlay.remove();
+          if (overlay) {
+            var content = overlay.shadowRoot ? overlay.shadowRoot.innerHTML : overlay.innerHTML;
+            if (shouldSuppress(content)) {
+              overlay.remove();
+            }
           }
         });
-        if (document.body) {
-          observer.observe(document.body, { childList: true, subtree: true });
+
+        if (document.documentElement) {
+          observer.observe(document.documentElement, { childList: true, subtree: true });
         } else {
           document.addEventListener('DOMContentLoaded', function() {
-            observer.observe(document.body, { childList: true, subtree: true });
+            observer.observe(document.documentElement, { childList: true, subtree: true });
           });
         }
       })();
     </script>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-amber-500 selection:text-white">
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
