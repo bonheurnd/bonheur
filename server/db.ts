@@ -885,8 +885,8 @@ function seedOfficialSongs() {
       const rawSongs = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 
       const insertSong = db.prepare(`
-        INSERT INTO songs (id, title, song_number, composer, category_id, release_status, release_date, description, display_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO songs (id, title, song_number, composer, category_id, release_status, release_date, description, display_order, status, is_deleted)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', 0)
       `);
       const insertLyrics = db.prepare(`
         INSERT INTO lyrics (id, song_id, content, language)
@@ -912,6 +912,14 @@ function seedOfficialSongs() {
     } else {
       console.error('[Songbook] Error: LA_LUMIERE_CHORALE_SONGS_APP_READY.json file not found!');
     }
+  }
+
+  // Ensure all songs have published status and is_deleted = 0
+  try {
+    db.prepare("UPDATE songs SET status = 'published' WHERE status IS NULL OR status = ''").run();
+    db.prepare("UPDATE songs SET is_deleted = 0 WHERE is_deleted IS NULL").run();
+  } catch (e) {
+    // ignore
   }
 
   // Seed sample announcements

@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Heart,
   Share2,
+  Copy,
   Lock,
   Unlock,
   Play,
@@ -63,6 +64,7 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
   const [replyToId, setReplyToId] = useState<string | null>(null);
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
+  const [copyToast, setCopyToast] = useState<string | null>(null);
 
   // Offline download state
   const [isDownloaded, setIsDownloaded] = useState<boolean>(false);
@@ -264,10 +266,69 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
         document.body.removeChild(textarea);
       }
       setCopiedShare(true);
+      setCopyToast(`Link y'indirimbo "${song.title}" yakoporowe neza!`);
       setTimeout(() => setCopiedShare(false), 2500);
+      setTimeout(() => setCopyToast(null), 3500);
     } catch (err) {
       console.warn('Failed to copy share link:', err);
     }
+  };
+
+  /**
+   * Dedicated Copy Link handler:
+   * Uses Web Share API if available to share or copy the link directly,
+   * copies the current song URL with ID to the user's clipboard,
+   * and displays a toast notification for instant feedback.
+   */
+  const handleCopyLink = async () => {
+    if (!song) return;
+
+    const songUrl = `${window.location.origin}${window.location.pathname}?song=${encodeURIComponent(song.id)}`;
+    const shareTitle = `${song.song_number ? `#${song.song_number} ` : ''}${song.title} - La Lumiere Choir`;
+    const shareText = `Soma amagambo y'indirimbo "${song.title}" ya Chorale La Lumiere (ADEPR Nyanza): ${songUrl}`;
+
+    // Try clipboard writeText first for direct copy action
+    let copied = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(songUrl);
+        copied = true;
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = songUrl;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        copied = true;
+      }
+    } catch (clipErr) {
+      console.warn('Clipboard writeText failed, will try Web Share API:', clipErr);
+    }
+
+    // Also offer Web Share API if user clicks and device supports sharing
+    if (!copied && navigator.share) {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: songUrl,
+        });
+        copied = true;
+      } catch (shareErr) {
+        if (shareErr instanceof Error && shareErr.name === 'AbortError') {
+          return;
+        }
+      }
+    }
+
+    // Trigger visual feedback and toast notification
+    setCopiedShare(true);
+    setCopyToast(`Link y'indirimbo "${song.title}" yakoporowe (Copied to clipboard)!`);
+    setTimeout(() => setCopiedShare(false), 2500);
+    setTimeout(() => setCopyToast(null), 3500);
   };
 
   const handlePostComment = async (e: React.FormEvent) => {
@@ -426,26 +487,55 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
             <Heart className={`w-4 h-4 ${song.is_favorite ? 'fill-current' : ''}`} />
           </button>
 
+          {/* Copy Link Button (Uses Web Share API & Clipboard with Toast feedback) */}
+          <button
+            onClick={handleCopyLink}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl transition-all active:scale-95 text-xs font-bold"
+            title="Koporora link y'iyi ndirimbo (Copy Song Link)"
+            aria-label="Copy Song Link"
+          >
+            {copiedShare ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="text-emerald-700 font-bold">Yakoporowe!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5 text-slate-600" />
+                <span className="hidden sm:inline">Copy Link</span>
+              </>
+            )}
+          </button>
+
           <button
             onClick={handleShare}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl transition-all active:scale-95 relative text-xs font-bold"
             title="Sangiza abandi iyi ndirimbo (Share Song)"
             aria-label="Share Song"
           >
-            {copiedShare ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-emerald-700 font-bold">Link Copied!</span>
-              </>
-            ) : (
-              <>
-                <Share2 className="w-3.5 h-3.5 text-slate-600" />
-                <span className="hidden sm:inline">Sangiza</span>
-              </>
-            )}
+            <Share2 className="w-3.5 h-3.5 text-slate-600" />
+            <span className="hidden sm:inline">Sangiza</span>
           </button>
         </div>
       </div>
+
+      {/* Copy Link Success Toast Notification */}
+      {copyToast && (
+        <div className="bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 flex items-center justify-between gap-3 text-xs font-medium animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+              <Check className="w-3.5 h-3.5" />
+            </div>
+            <span className="truncate">{copyToast}</span>
+          </div>
+          <button
+            onClick={() => setCopyToast(null)}
+            className="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg hover:bg-slate-800 transition-colors shrink-0"
+          >
+            Sawa
+          </button>
+        </div>
+      )}
 
       {/* Download Toast Notification */}
       {downloadSuccessToast && (
@@ -692,22 +782,23 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
               <p className="text-xs opacity-75 font-sans">
                 Sangiza abandi iyi ndirimbo ngo bafatanye natwe guhimbaza Imana.
               </p>
-              <button
-                onClick={handleShare}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95"
-              >
-                {copiedShare ? (
-                  <>
-                    <Check className="w-4 h-4 text-emerald-400" />
-                    <span>Link Yafashwe (Copied)!</span>
-                  </>
-                ) : (
-                  <>
-                    <Share2 className="w-4 h-4" />
-                    <span>Sangiza Abandi (Share Song)</span>
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={handleCopyLink}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-white/10 hover:bg-white/20 border border-current/20 rounded-xl text-xs font-bold transition-all active:scale-95"
+                  title="Koporora link y'iyi ndirimbo (Copy Link)"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Koporora Link</span>
+                </button>
+                <button
+                  onClick={handleShare}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Sangiza Abandi</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
