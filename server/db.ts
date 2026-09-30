@@ -3,12 +3,12 @@ import fs from 'fs';
 import { DatabaseSync } from 'node:sqlite';
 import bcrypt from 'bcryptjs';
 
-const DB_DIR = path.join(process.cwd(), 'data');
+const DB_DIR = process.env.DATA_DIR || (process.env.DATABASE_PATH ? path.dirname(process.env.DATABASE_PATH) : path.join(process.cwd(), 'data'));
 if (!fs.existsSync(DB_DIR)) {
   fs.mkdirSync(DB_DIR, { recursive: true });
 }
 
-const dbPath = path.join(DB_DIR, 'lalumiere.db');
+const dbPath = process.env.DATABASE_PATH || path.join(DB_DIR, 'lalumiere.db');
 
 export interface StatementWrapper {
   all(...args: any[]): any[];
@@ -384,6 +384,20 @@ export function initDatabase() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 26. Password Resets (Secure time-limited single-use reset tokens)
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at DATETIME NOT NULL,
+      used INTEGER DEFAULT 0,
+      used_at DATETIME,
+      ip_address TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     -- Indexes for high performance
     CREATE INDEX IF NOT EXISTS idx_songs_status ON songs(release_status);
     CREATE INDEX IF NOT EXISTS idx_songs_category ON songs(category_id);
@@ -391,6 +405,9 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_comments_song ON comments(song_id);
     CREATE INDEX IF NOT EXISTS idx_transactions_status ON payment_transactions(status);
     CREATE INDEX IF NOT EXISTS idx_transactions_user ON payment_transactions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
+    CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
   `);
 
   // Safe migrations for table alterations
@@ -470,13 +487,21 @@ export function initDatabase() {
   }
 
   for (const acc of adminTargetAccounts) {
-    const existing = db.prepare('SELECT id, role FROM users WHERE LOWER(TRIM(email)) = ?').get(acc.email) as any;
+    const existing = db.prepare('SELECT id, role, password_hash FROM users WHERE LOWER(TRIM(email)) = ?').get(acc.email) as any;
     if (existing) {
-      db.prepare(`
-        UPDATE users
-        SET role = 'super_admin', is_disabled = 0, password_hash = ?
-        WHERE id = ?
-      `).run(primaryAdminHash, existing.id);
+      if (!existing.password_hash) {
+        db.prepare(`
+          UPDATE users
+          SET role = 'super_admin', is_disabled = 0, password_hash = ?
+          WHERE id = ?
+        `).run(primaryAdminHash, existing.id);
+      } else {
+        db.prepare(`
+          UPDATE users
+          SET role = 'super_admin', is_disabled = 0
+          WHERE id = ?
+        `).run(existing.id);
+      }
     } else {
       const customId = `usr_admin_${acc.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
       db.prepare(`

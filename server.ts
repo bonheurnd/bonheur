@@ -9,6 +9,8 @@ import multer from 'multer';
 import { db, initDatabase, logActivity } from './server/db.js';
 import {
   generateToken,
+  generatePasswordResetToken,
+  verifyPasswordResetToken,
   verifyToken,
   requireAuth,
   requireAdmin,
@@ -28,12 +30,13 @@ import {
   AuthRequest
 } from './server/auth.js';
 import { initiateRwandaPayment, verifyPaymentTransaction, validateRwandaPhoneNumber } from './server/momo.js';
+import { sendPasswordResetEmail, isEmailServiceConfigured, getEmailConfig } from './server/email.js';
 
 // Initialize DB schema & seeds
 initDatabase();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Set global security & CORS headers exposing Content-Type for all API endpoints
 app.use((req, res, next) => {
@@ -525,6 +528,8 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const token = generateToken({ id: user.id, email: user.email, role: user.role, name: user.name });
+
+    logActivity(user.id, user.name, user.role, 'USER_LOGIN', 'auth', user.id, `User ${user.email} logged in successfully`);
 
     res.json({
       message: 'Mwinjiye neza (Logged in successfully)',
@@ -1205,6 +1210,348 @@ app.delete('/api/auth/delete-account', requireAuth, (req: AuthRequest, res) => {
 });
 
 // -------------------------------------------------------------
+// SECURE PASSWORD RECOVERY & ACCOUNT IDENTIFIER RECOVERY API
+// -------------------------------------------------------------
+
+// In-memory rate limiter for password reset requests to prevent abuse
+const resetRateLimiter = new Map<string, { count: number; firstRequestTime: number }>();
+function checkResetRateLimit(key: string, maxAttempts = 5, windowMs = 15 * 60 * 1000): boolean {
+  const now = Date.now();
+  const record = resetRateLimiter.get(key);
+  if (!record) {
+    resetRateLimiter.set(key, { count: 1, firstRequestTime: now });
+    return true;
+  }
+  if (now - record.firstRequestTime > windowMs) {
+    resetRateLimiter.set(key, { count: 1, firstRequestTime: now });
+    return true;
+  }
+  if (record.count >= maxAttempts) {
+    return false;
+  }
+  record.count += 1;
+  return true;
+}
+
+/**
+ * 1. Request Password Reset Link
+ * - Time-limited, single-use cryptographically secure token
+ * - Generic response prevents email enumeration attacks
+ * - Rate-limited to prevent abuse
+ */
+app.post('/api/auth/forgot-password', async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const { email } = req.body || {};
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown_ip';
+
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Imeyili yemewe irakenewe (A valid email address is required)'
+      });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const rateLimitKey = `${clientIp}_${cleanEmail}`;
+
+    if (!checkResetRateLimit(rateLimitKey)) {
+      return res.status(429).json({
+        success: false,
+        error: 'Mwagerageje kenshi cyane. Nyamuneka tegereza iminota 15 mbere yo kongera gusaba (Too many attempts. Please try again after 15 minutes)'
+      });
+    }
+
+    // Generic response message - never reveals whether email exists in the system
+    const genericSuccessMessage = "Niba iyi imeyili ifite konti muri sisitemu, amabwiriza yo gusubiramo ijambo ry'ibanga yoherejwe kuri imeyili yawe. Reba no muri spam. (If this email is registered, password reset instructions have been sent.)";
+
+    // Query user record
+    const user = db.prepare('SELECT id, name, email, role, is_disabled FROM users WHERE LOWER(TRIM(email)) = ?').get(cleanEmail) as any;
+
+    if (!user || user.is_disabled) {
+      // Artificial delay to prevent timing attack enumeration
+      await new Promise(resolve => setTimeout(resolve, 250));
+      return res.status(200).json({
+        success: true,
+        message: genericSuccessMessage
+      });
+    }
+
+    // Invalidate previous unused reset tokens for this user
+    db.prepare('UPDATE password_resets SET used = 1 WHERE user_id = ? AND used = 0').run(user.id);
+
+    // Generate secure, time-limited JWT reset token (1 hour expiry)
+    const jwtResetToken = generatePasswordResetToken({ id: user.id, email: cleanEmail });
+    const tokenHash = crypto.createHash('sha256').update(jwtResetToken).digest('hex');
+    const resetId = `rst_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    // Set expiration to exactly 1 hour from now (in UTC ISO format for SQLite compatibility)
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    db.prepare(`
+      INSERT INTO password_resets (id, user_id, email, token_hash, expires_at, used, ip_address, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)
+    `).run(resetId, user.id, cleanEmail, tokenHash, expiresAt, clientIp);
+
+    // Resolve base application URL for production on Render or local dev
+    const configuredAppUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL;
+    let baseUrl = configuredAppUrl;
+    if (!baseUrl) {
+      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+      const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
+      baseUrl = `${proto}://${host}`;
+    }
+    baseUrl = baseUrl.replace(/\/+$/, '');
+
+    const resetUrl = `${baseUrl}/?reset_token=${jwtResetToken}&email=${encodeURIComponent(cleanEmail)}`;
+
+    console.log(`[Password Reset] Generated secure JWT reset token for ${cleanEmail}. Link expires in 60 minutes.`);
+
+    // Trigger email service (real SMTP or placeholder service)
+    await sendPasswordResetEmail({
+      toEmail: cleanEmail,
+      recipientName: user.name,
+      resetUrl,
+      expiresInMinutes: 60
+    });
+
+    if (process.env.NODE_ENV !== 'production') {
+      return res.status(200).json({
+        success: true,
+        message: genericSuccessMessage,
+        devResetUrl: resetUrl,
+        isDevFallback: !isEmailServiceConfigured()
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: genericSuccessMessage
+    });
+  } catch (err: any) {
+    console.error('[Forgot Password Error]:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Habaye ikosa mu gutunganya ubusabe bwawe. Ongera ugerageze mukanya.'
+    });
+  }
+});
+
+/**
+ * 2. Verify Password Reset Token Validity
+ */
+app.post('/api/auth/verify-reset-token', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const { token, email } = req.body || {};
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ valid: false, error: 'Token irakenewe' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const record = db.prepare(`
+      SELECT pr.*, u.name, u.email as user_email
+      FROM password_resets pr
+      JOIN users u ON pr.user_id = u.id
+      WHERE pr.token_hash = ? AND pr.used = 0
+    `).get(tokenHash) as any;
+
+    if (!record) {
+      return res.status(400).json({
+        valid: false,
+        error: 'Iyi link yo gusubiramo ijambo ry\'ibanga ntiyemewe cyangwa yarakoreshejwe (Invalid or already used token).'
+      });
+    }
+
+    const expiresAt = new Date(record.expires_at).getTime();
+    if (Date.now() > expiresAt) {
+      return res.status(400).json({
+        valid: false,
+        error: 'Iyi link yarengeje igihe cyayo cy\'agaciro (Token has expired). Saba indi nshya.'
+      });
+    }
+
+    return res.status(200).json({
+      valid: true,
+      message: 'Token iremewe (Valid token)',
+      email: record.user_email,
+      name: record.name
+    });
+  } catch (err: any) {
+    return res.status(500).json({ valid: false, error: 'Failed to verify token' });
+  }
+});
+
+/**
+ * 3. Complete Password Reset
+ * - Validates single-use token and expiration
+ * - Hashes new password securely with bcrypt
+ * - Invalidates token and all older pending tokens
+ * - Old password can no longer be used
+ */
+app.post('/api/auth/reset-password', async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const { token, newPassword } = req.body || {};
+
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Token yo gusubiramo ijambo ry\'ibanga irakenewe (Reset token is required)'
+      });
+    }
+
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: 'Ijambo ry\'ibanga rishya rigomba kugira byibuze inyuguti 6 (Password must be at least 6 characters)'
+      });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const record = db.prepare(`
+      SELECT pr.*, u.id as user_id, u.name, u.email as user_email, u.role
+      FROM password_resets pr
+      JOIN users u ON pr.user_id = u.id
+      WHERE pr.token_hash = ? AND pr.used = 0
+    `).get(tokenHash) as any;
+
+    if (!record) {
+      return res.status(400).json({
+        success: false,
+        error: 'Iyi link yo gusubiramo ijambo ry\'ibanga ntiyemewe cyangwa yarakoreshejwe (Invalid or already used token). Nyamuneka saba indi nshya.'
+      });
+    }
+
+    const expiresAt = new Date(record.expires_at).getTime();
+    if (Date.now() > expiresAt) {
+      return res.status(400).json({
+        success: false,
+        error: 'Iyi link yarengeje igihe cyayo (Token has expired). Nyamuneka saba indi nshya.'
+      });
+    }
+
+    // Hash new password using bcrypt
+    const newPasswordHash = hashPassword(newPassword);
+
+    // Update user password and invalidate all tokens for this user in a transaction
+    db.exec('BEGIN TRANSACTION;');
+    try {
+      db.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(newPasswordHash, record.user_id);
+
+      db.prepare('UPDATE password_resets SET used = 1, used_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(record.id);
+
+      // Invalidate any other pending tokens
+      db.prepare('UPDATE password_resets SET used = 1 WHERE user_id = ? AND used = 0')
+        .run(record.user_id);
+
+      db.exec('COMMIT;');
+    } catch (txErr) {
+      db.exec('ROLLBACK;');
+      throw txErr;
+    }
+
+    logActivity(
+      record.user_id,
+      record.name,
+      record.role,
+      'PASSWORD_RESET',
+      'users',
+      record.user_id,
+      `User ${record.user_email} successfully reset password via secure single-use token`
+    );
+
+    console.log(`[Password Reset Complete] Successfully reset password for user ${record.user_email}. Single-use token invalidated.`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Ijambo ry\'ibanga ryahinduwe neza! Ushobora kwinjira muri konti yawe noneho (Password successfully updated. You can now sign in).'
+    });
+  } catch (err: any) {
+    console.error('[Reset Password Error]:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Habaye ikosa mu guhindura ijambo ry\'ibanga. Ongera ugerageze mukanya.'
+    });
+  }
+});
+
+/**
+ * 4. Forgotten Email or Username Recovery
+ * - Helps users who forgot their email address using a registered phone number
+ * - Never discloses complete registered email or details to an unauthenticated person
+ * - Stronger protection for Admin accounts: directs them to Choir Leadership
+ */
+app.post('/api/auth/forgot-identifier', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const { phone } = req.body || {};
+
+    if (!phone || typeof phone !== 'string' || phone.trim().length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: 'Nimero ya terefone yemewe irakenewe (Valid phone number required)'
+      });
+    }
+
+    const cleanPhone = phone.trim().replace(/\s+/g, '');
+    const phoneCandidates = [
+      cleanPhone,
+      cleanPhone.startsWith('0') ? '+250' + cleanPhone.substring(1) : cleanPhone,
+      cleanPhone.startsWith('+250') ? '0' + cleanPhone.substring(4) : cleanPhone,
+      cleanPhone.startsWith('250') ? '0' + cleanPhone.substring(3) : cleanPhone
+    ];
+
+    let user: any = null;
+    for (const p of phoneCandidates) {
+      user = db.prepare('SELECT id, name, email, phone, role, is_disabled FROM users WHERE phone = ?').get(p) as any;
+      if (user) break;
+    }
+
+    if (!user || user.is_disabled) {
+      return res.status(200).json({
+        success: false,
+        message: 'Nta konti ibonetse ifitanye isano n\'iyi nimero ya terefone. Niba ufite ikibazo cyo kwibagirwa imeyili yawe, mwavugana n\'ubuyobozi bwa Korali kuri lalumierechoir@gmail.com cyangwa kuri telefone y\'itorero.'
+      });
+    }
+
+    // Admin accounts receive stronger protection against unauthorized account recovery
+    if (isUserAdmin(user.role)) {
+      return res.status(200).json({
+        success: true,
+        isAdminAccount: true,
+        message: 'Konti y\'ubuyobozi ifite umutekano wihariye kandi ntiyemererwa kugaragaza imeyili muri ubu buryo. Nyamuneka vugana n\'Umuyobozi Mukuru wa Korali cyangwa wandikire ubuyobozi kuri lalumierechoir@gmail.com kugira ngo bagufashe kwemeza umwirondoro wawe.'
+      });
+    }
+
+    // Mask user's email so that the complete address is never disclosed
+    const parts = user.email.split('@');
+    const namePart = parts[0];
+    const domainPart = parts[1] || 'gmail.com';
+    let maskedName = '';
+    if (namePart.length <= 2) {
+      maskedName = `${namePart[0]}***`;
+    } else {
+      maskedName = `${namePart[0]}***${namePart[namePart.length - 1]}`;
+    }
+    const maskedEmail = `${maskedName}@${domainPart}`;
+
+    return res.status(200).json({
+      success: true,
+      maskedEmail,
+      message: `Konti yawe yarabonetse! Imeyili ikoreshwa ni: ${maskedEmail}. Koresha iyi meyili cyangwa ukande 'Gusubiramo Ijambo ry'Ibanga' niba wifuza irindi jambo ry'ibanga.`
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Habaye ikosa mu kureba umwirondoro wawe.'
+    });
+  }
+});
+
+// -------------------------------------------------------------
 // SONGS & DIGITAL SONGBOOK API
 // -------------------------------------------------------------
 app.get('/api/songs', optionalAuth, (req: AuthRequest, res) => {
@@ -1316,6 +1663,10 @@ app.get('/api/songs/:id', optionalAuth, (req: AuthRequest, res) => {
 
     // Increment view count
     db.prepare('UPDATE songs SET views_count = views_count + 1 WHERE id = ?').run(id);
+
+    if (req.user) {
+      logActivity(req.user.id, req.user.name, req.user.role, 'SONG_ACCESS', 'songs', id, `Accessed hymn lyrics for "${song.title}"`);
+    }
 
     const audioTracks = db.prepare('SELECT * FROM audio_tracks WHERE song_id = ? AND (is_deleted = 0 OR is_deleted IS NULL) ORDER BY created_at ASC').all(id) as any[];
     const lyricsRow = db.prepare('SELECT * FROM lyrics WHERE song_id = ?').get(id) as any;
@@ -2911,12 +3262,15 @@ app.get('/api/admin/users', requireAdmin, (req: AuthRequest, res) => {
   }
 });
 
-app.patch('/api/admin/users/:id/role', requireSuperAdmin, (req: AuthRequest, res) => {
+app.all('/api/admin/users/:id/role', requireSuperAdmin, (req: AuthRequest, res) => {
+  if (req.method !== 'PUT' && req.method !== 'PATCH') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
   try {
     const { id } = req.params;
     const { role } = req.body;
 
-    const validRoles = ['super_admin', 'admin', 'content_admin', 'moderator', 'normal_user', 'member'];
+    const validRoles = ['super_admin', 'admin', 'content_admin', 'moderator', 'normal_user', 'member', 'supporter', 'choir_member'];
     if (!validRoles.includes(role)) {
       return res.status(400).json({ error: 'Inshingano itemewe (Invalid role)' });
     }
@@ -2936,7 +3290,10 @@ app.patch('/api/admin/users/:id/role', requireSuperAdmin, (req: AuthRequest, res
   }
 });
 
-app.patch('/api/admin/users/:id/status', requireSuperAdmin, (req: AuthRequest, res) => {
+app.all('/api/admin/users/:id/status', requireSuperAdmin, (req: AuthRequest, res) => {
+  if (req.method !== 'PUT' && req.method !== 'PATCH') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
   try {
     const { id } = req.params;
     const { is_disabled } = req.body;
@@ -2953,6 +3310,186 @@ app.patch('/api/admin/users/:id/status', requireSuperAdmin, (req: AuthRequest, r
     res.json({ message: `Konti y\'umukoresha ${disabledVal ? 'yahagaritswe' : 'yakomorewe'} neza`, is_disabled: disabledVal === 1 });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update user status' });
+  }
+});
+
+// Member Directory API with server-side role verification
+app.get('/api/admin/members', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { search, role, status } = req.query;
+    let query = `
+      SELECT id, name, email, phone, role, avatar_url, choir_voice, choir_role, is_disabled, created_at,
+             (SELECT COUNT(*) FROM comments c WHERE c.user_id = u.id) as comments_count,
+             (SELECT COUNT(*) FROM payment_transactions pt WHERE pt.user_id = u.id AND pt.status = 'successful') as donations_count
+      FROM users u
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    if (role && role !== 'all') {
+      query += ` AND u.role = ?`;
+      params.push(role);
+    }
+
+    if (status === 'active') {
+      query += ` AND (u.is_disabled = 0 OR u.is_disabled IS NULL)`;
+    } else if (status === 'disabled') {
+      query += ` AND u.is_disabled = 1`;
+    }
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      query += ` AND (u.name LIKE ? OR u.email LIKE ? OR u.phone LIKE ? OR u.choir_voice LIKE ? OR u.choir_role LIKE ?)`;
+      params.push(term, term, term, term, term);
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+    const members = db.prepare(query).all(...params);
+    res.json(members);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch admin members' });
+  }
+});
+
+// Member Statistics API using Recharts data formats
+app.get('/api/admin/members/stats', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const roleRows = db.prepare(`
+      SELECT 
+        CASE 
+          WHEN role IN ('super_admin', 'admin') THEN 'Admin'
+          WHEN role IN ('choir_member', 'member', 'content_admin', 'moderator') THEN 'Member'
+          ELSE 'User'
+        END as group_name,
+        role,
+        COUNT(*) as count
+      FROM users
+      GROUP BY role
+    `).all() as any[];
+
+    let adminCount = 0;
+    let memberCount = 0;
+    let userCount = 0;
+    const breakdownByRole: Record<string, number> = {};
+
+    for (const r of roleRows) {
+      breakdownByRole[r.role] = r.count;
+      if (r.group_name === 'Admin') adminCount += r.count;
+      else if (r.group_name === 'Member') memberCount += r.count;
+      else userCount += r.count;
+    }
+
+    const roleDistribution = [
+      { name: 'Admin', count: adminCount, fill: '#1e3a8a' },
+      { name: 'Member', count: memberCount, fill: '#059669' },
+      { name: 'User', count: userCount, fill: '#d97706' },
+    ];
+
+    const trendsRows = db.prepare(`
+      SELECT 
+        strftime('%Y-%m', created_at) as month,
+        COUNT(*) as registrations,
+        SUM(CASE WHEN role IN ('super_admin', 'admin') THEN 1 ELSE 0 END) as admins,
+        SUM(CASE WHEN role IN ('choir_member', 'member', 'content_admin', 'moderator') THEN 1 ELSE 0 END) as members,
+        SUM(CASE WHEN role NOT IN ('super_admin', 'admin', 'choir_member', 'member', 'content_admin', 'moderator') THEN 1 ELSE 0 END) as users
+      FROM users
+      WHERE created_at >= date('now', '-6 months')
+      GROUP BY strftime('%Y-%m', created_at)
+      ORDER BY month ASC
+    `).all() as any[];
+
+    const registrationTrends = trendsRows.length > 0
+      ? trendsRows.map(t => ({
+          month: t.month || 'Current',
+          registrations: t.registrations || 0,
+          admins: t.admins || 0,
+          members: t.members || 0,
+          users: t.users || 0,
+        }))
+      : [
+          { month: 'Bungura', registrations: adminCount + memberCount + userCount, admins: adminCount, members: memberCount, users: userCount }
+        ];
+
+    const totalUsers = adminCount + memberCount + userCount;
+    const activeCount = (db.prepare('SELECT COUNT(*) as c FROM users WHERE is_disabled = 0 OR is_disabled IS NULL').get() as any)?.c || 0;
+    const disabledCount = (db.prepare('SELECT COUNT(*) as c FROM users WHERE is_disabled = 1').get() as any)?.c || 0;
+
+    res.json({
+      totalUsers,
+      activeCount,
+      disabledCount,
+      roleDistribution,
+      registrationTrends,
+      breakdownByRole
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load member statistics' });
+  }
+});
+
+// Member List CSV Export for local record-keeping
+app.get('/api/admin/members/export', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { search, role, status } = req.query;
+    let query = `
+      SELECT id, name, email, phone, role, choir_voice, choir_role, is_disabled, created_at
+      FROM users
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+    if (role && role !== 'all') {
+      query += ` AND role = ?`;
+      params.push(role);
+    }
+    if (status === 'active') {
+      query += ` AND (is_disabled = 0 OR is_disabled IS NULL)`;
+    } else if (status === 'disabled') {
+      query += ` AND is_disabled = 1`;
+    }
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      query += ` AND (name LIKE ? OR email LIKE ? OR phone LIKE ?)`;
+      params.push(term, term, term);
+    }
+    query += ` ORDER BY name ASC`;
+    const users = db.prepare(query).all(...params) as any[];
+
+    const headers = ['Izina (Full Name)', 'Imeli (Email)', 'Telefone (Phone)', 'Inshingano (Role)', 'Ijwi (Voice)', 'Umwanya (Choir Role)', 'Imiterere (Status)', 'Itariki yo Kwiyandikisha'];
+    const rows = users.map(u => [
+      `"${(u.name || '').replace(/"/g, '""')}"`,
+      `"${(u.email || '').replace(/"/g, '""')}"`,
+      `"${(u.phone || '').replace(/"/g, '""')}"`,
+      u.role,
+      u.choir_voice || 'N/A',
+      `"${(u.choir_role || '').replace(/"/g, '""')}"`,
+      u.is_disabled ? 'Yahagaritswe (Disabled)' : 'Irakora (Active)',
+      u.created_at || ''
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="la_lumiere_members_' + Date.now() + '.csv"');
+    res.send(csvContent);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to export members to CSV' });
+  }
+});
+
+// Member Activity Log (Last 10 user actions)
+app.get('/api/admin/member-activity-logs', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const limit = Number(req.query.limit) || 10;
+    const logs = db.prepare(`
+      SELECT al.*, u.avatar_url, u.email as user_email
+      FROM activity_logs al
+      LEFT JOIN users u ON al.user_id = u.id
+      ORDER BY al.created_at DESC
+      LIMIT ?
+    `).all(limit);
+
+    res.json(logs);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch member activity logs' });
   }
 });
 

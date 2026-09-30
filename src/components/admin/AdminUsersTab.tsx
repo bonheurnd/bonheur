@@ -13,8 +13,13 @@ import {
   CheckCircle,
   AlertCircle,
   X,
+  Download,
+  BarChart3,
+  Activity,
 } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
+import { AdminMemberStats } from './AdminMemberStats';
+import { AdminMemberActivityLog } from './AdminMemberActivityLog';
 
 interface AdminUsersTabProps {
   users: UserProfile[];
@@ -45,6 +50,9 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [toggleStatusUser, setToggleStatusUser] = useState<UserProfile | null>(null);
   const [isTogglingStatus, setIsTogglingStatus] = useState(false);
 
+  // Sub-navigation view inside Member Management
+  const [subView, setSubView] = useState<'members' | 'stats' | 'activity'>('members');
+
   // Alerts
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -73,6 +81,28 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       return true;
     });
   }, [users, searchQuery, roleFilter, statusFilter]);
+
+  // Export filtered member list to CSV file
+  const handleDownloadCsv = () => {
+    const headers = ['Amazina (Full Name)', 'Imeyili (Email)', 'Telefone (Phone)', 'Inshingano (Role)', 'Imiterere (Status)', 'Itariki'];
+    const rows = filteredUsers.map(u => [
+      `"${(u.full_name || '').replace(/"/g, '""')}"`,
+      `"${(u.email || '').replace(/"/g, '""')}"`,
+      `"${(u.phone || '').replace(/"/g, '""')}"`,
+      u.role,
+      u.is_disabled ? 'Yahagaritswe (Disabled)' : 'Irakora (Active)',
+      u.created_at || ''
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `la_lumiere_members_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Update Role
   const handleUpdateRole = async (e: React.FormEvent) => {
@@ -182,19 +212,67 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
           <div>
             <h2 className="text-base font-black text-slate-900 font-serif flex items-center gap-2">
               <Users className="w-5 h-5 text-blue-900" />
-              <span>Gucunga Abakoresha (User Management & Roles)</span>
+              <span>Gucunga Abakoresha n'Abanyamuryango (Member Management & Directory)</span>
             </h2>
             <p className="text-xs text-slate-500">
-              Guhindura inshingano (Roles), guhagarika kwinjira, no guhindura amagambobanga
+              Guhindura inshingano (Roles), guhagarika kwinjira, gusohora raporo ya CSV, no gukurikirana ibikorwa
             </p>
           </div>
 
+          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            <button
+              onClick={handleDownloadCsv}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-800 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+              title="Download CSV"
+              aria-label="Download CSV"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download CSV ({filteredUsers.length})</span>
+            </button>
+
+            <button
+              onClick={onRefresh}
+              className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl"
+              title="Vugurura"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Sub-view Navigation inside Member Directory */}
+        <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold gap-1">
           <button
-            onClick={onRefresh}
-            className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl self-start sm:self-auto"
-            title="Vugurura"
+            type="button"
+            onClick={() => setSubView('members')}
+            className={`flex-1 py-1.5 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              subView === 'members' ? 'bg-white text-blue-950 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
           >
-            <RefreshCw className="w-4 h-4" />
+            <Users className="w-3.5 h-3.5 text-blue-900" />
+            <span>Urutonde rw'Abanyamuryango ({filteredUsers.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubView('stats')}
+            className={`flex-1 py-1.5 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              subView === 'stats' ? 'bg-white text-blue-950 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-indigo-700" />
+            <span>Imibare n'Ibishushanyo (Statistics)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubView('activity')}
+            className={`flex-1 py-1.5 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              subView === 'activity' ? 'bg-white text-blue-950 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5 text-emerald-700" />
+            <span>Ibikorwa 10 Biheruka (Activity Log)</span>
           </button>
         </div>
 
@@ -212,46 +290,53 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
           </div>
         )}
 
-        {/* Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
-          <div className="relative sm:col-span-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Shakisha izina, email, telefone..."
-              className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-900"
-            />
+        {/* Filters (only visible when viewing members list) */}
+        {subView === 'members' && (
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
+            <div className="relative sm:col-span-2">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Shakisha umunyamuryango ukoresheje izina cyangwa imeyili..."
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-900"
+              />
+            </div>
+
+            <select
+              value={roleFilter}
+              onChange={e => setRoleFilter(e.target.value)}
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-900"
+            >
+              <option value="all">Inshingano zose ({users.length})</option>
+              <option value="super_admin">Super Admin</option>
+              <option value="admin">Admin</option>
+              <option value="content_admin">Content Admin</option>
+              <option value="moderator">Moderator</option>
+              <option value="member">Choir Member</option>
+              <option value="supporter">Supporter</option>
+            </select>
+
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value as any)}
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-900"
+            >
+              <option value="all">Imimerere yose</option>
+              <option value="active">Abafite uburenganzira (Active)</option>
+              <option value="disabled">Abahagaritswe (Disabled)</option>
+            </select>
           </div>
-
-          <select
-            value={roleFilter}
-            onChange={e => setRoleFilter(e.target.value)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-900"
-          >
-            <option value="all">Inshingano zose ({users.length})</option>
-            <option value="super_admin">Super Admin</option>
-            <option value="admin">Admin</option>
-            <option value="content_admin">Content Admin</option>
-            <option value="moderator">Moderator</option>
-            <option value="member">Choir Member</option>
-            <option value="supporter">Supporter</option>
-          </select>
-
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value as any)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-900"
-          >
-            <option value="all">Imimerere yose</option>
-            <option value="active">Abafite uburenganzira (Active)</option>
-            <option value="disabled">Abahagaritswe (Disabled)</option>
-          </select>
-        </div>
+        )}
       </div>
 
-      {/* Users List */}
+      {/* Render Sub-View Component */}
+      {subView === 'stats' && <AdminMemberStats />}
+      {subView === 'activity' && <AdminMemberActivityLog />}
+
+      {/* Users List (Only when subView === 'members') */}
+      {subView === 'members' && (
       <div className="space-y-2">
         {filteredUsers.length === 0 ? (
           <div className="bg-white rounded-3xl p-8 text-center text-xs text-slate-400 border border-slate-200/80">
@@ -354,6 +439,7 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
           })
         )}
       </div>
+      )}
 
       {/* ROLE MODAL */}
       {editingUser && (

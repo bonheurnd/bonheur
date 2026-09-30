@@ -520,6 +520,30 @@ export function generateToken(user: { id: string; email: string; role: string; n
   );
 }
 
+export function generatePasswordResetToken(user: { id: string; email: string }): string {
+  return jwt.sign(
+    {
+      id: user.id,
+      email: user.email,
+      type: 'password_reset',
+    },
+    JWT_SECRET,
+    { expiresIn: '1h' }
+  );
+}
+
+export function verifyPasswordResetToken(token: string): { id: string; email: string } | null {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (decoded && decoded.type === 'password_reset' && decoded.id && decoded.email) {
+      return { id: decoded.id, email: decoded.email };
+    }
+    return null;
+  } catch (err) {
+    return null;
+  }
+}
+
 export function verifyToken(token: string): AuthenticatedUser | null {
   try {
     return jwt.verify(token, JWT_SECRET) as AuthenticatedUser;

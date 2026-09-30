@@ -29,6 +29,7 @@ import {
   ExternalLink,
   PhoneCall,
   Share2,
+  BarChart3,
 } from 'lucide-react';
 
 import { AdminLoginPortal } from './admin/AdminLoginPortal';
@@ -38,6 +39,7 @@ import { AdminMediaTab } from './admin/AdminMediaTab';
 import { AdminContentTab } from './admin/AdminContentTab';
 import { AdminCommentsTab } from './admin/AdminCommentsTab';
 import { AdminUsersTab } from './admin/AdminUsersTab';
+import { AdminMemberStats } from './admin/AdminMemberStats';
 import { AdminLogsTab } from './admin/AdminLogsTab';
 import { AdminContactTab } from './admin/AdminContactTab';
 import { AdminSocialMediaTab } from './admin/AdminSocialMediaTab';
@@ -64,6 +66,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'social'
     | 'comments'
     | 'users'
+    | 'stats'
     | 'logs'
     | 'branding'
     | 'donations'
@@ -263,7 +266,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'contacts', label: 'Kuvugisha Ubuyobozi', icon: PhoneCall },
           { id: 'social', label: 'Imbuga Nkoranyambaga', icon: Share2 },
           { id: 'comments', label: 'Ibitekerezo', icon: MessageSquare },
-          { id: 'users', label: 'Abakoresha', icon: Users },
+          { id: 'users', label: 'Abanyamuryango (Members)', icon: Users },
+          { id: 'stats', label: 'Imibare (Member Stats)', icon: BarChart3 },
           { id: 'logs', label: 'Ubugenzuzi (Logs)', icon: Clock },
           { id: 'branding', label: 'Ibirango & Logo', icon: Palette },
           { id: 'donations', label: 'Inkunga (MoMo)', icon: HeartHandshake },
@@ -340,6 +344,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           currentUserRole={user?.role}
         />
       )}
+
+      {/* MEMBER STATISTICS DASHBOARD VIEW */}
+      {activeTab === 'stats' && <AdminMemberStats />}
 
       {/* 7. ACTIVITY LOGS */}
       {activeTab === 'logs' && <AdminLogsTab />}

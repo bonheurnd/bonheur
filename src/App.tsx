@@ -22,6 +22,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { GlobalAudioPlayer } from './components/GlobalAudioPlayer';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { AuthModal } from './components/AuthModal';
+import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { AppStorePrepModal } from './components/AppStorePrepModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 
@@ -33,13 +34,26 @@ function AppContent() {
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [isStoreModalOpen, setIsStoreModalOpen] = useState<boolean>(false);
 
-  // Check URL on initial mount and popstate for shared song link
+  // Password reset modal states
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [resetEmail, setResetEmail] = useState<string>('');
+  const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
+
+  // Check URL on initial mount and popstate for shared song link or password reset token
   useEffect(() => {
     const handleUrlChange = () => {
       const params = new URLSearchParams(window.location.search);
       const songParam = params.get('song');
       if (songParam) {
         setSelectedSongId(songParam);
+      }
+
+      const tokenParam = params.get('reset_token') || params.get('token');
+      const emailParam = params.get('email');
+      if (tokenParam) {
+        setResetToken(tokenParam);
+        if (emailParam) setResetEmail(emailParam);
+        setIsResetModalOpen(true);
       }
     };
 
@@ -189,6 +203,34 @@ function AppContent() {
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
+        onOpenResetWithToken={(token, email) => {
+          setResetToken(token);
+          setResetEmail(email);
+          setIsResetModalOpen(true);
+        }}
+      />
+
+      <ResetPasswordModal
+        isOpen={isResetModalOpen}
+        token={resetToken || ''}
+        email={resetEmail}
+        onClose={() => {
+          setIsResetModalOpen(false);
+          const url = new URL(window.location.href);
+          url.searchParams.delete('reset_token');
+          url.searchParams.delete('token');
+          url.searchParams.delete('email');
+          window.history.pushState({}, '', url.toString());
+        }}
+        onSuccess={() => {
+          setIsResetModalOpen(false);
+          const url = new URL(window.location.href);
+          url.searchParams.delete('reset_token');
+          url.searchParams.delete('token');
+          url.searchParams.delete('email');
+          window.history.pushState({}, '', url.toString());
+          setIsAuthOpen(true);
+        }}
       />
 
       <AppStorePrepModal
