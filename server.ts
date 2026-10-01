@@ -1,3 +1,8 @@
+// Ensure tsx runtime __dirname='.' polyfill does not interfere with Vite/Rolldown config loaders and plugins
+if (typeof (globalThis as any).__dirname !== 'undefined' && (globalThis as any).__dirname === '.') {
+  delete (globalThis as any).__dirname;
+}
+
 import express from 'express';
 import http from 'http';
 import path from 'path';
@@ -4560,11 +4565,12 @@ async function startServer() {
   const server = http.createServer(app);
 
   if (process.env.NODE_ENV !== 'production') {
-    const isHmrDisabled = true; // Completely disable HMR in container preview to stop failed WebSocket attempts
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: false,
+        ws: {
+          server,
+        },
       },
       appType: 'spa',
     });

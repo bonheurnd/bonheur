@@ -154,12 +154,9 @@ export default defineConfig(() => {
       },
     },
     server: {
-      // In restricted iframe environments, completely disable HMR to prevent failed WebSocket calls
-      hmr: process.env.DISABLE_HMR === 'false' ? { clientPort: 443 } : false,
-      // Disable file watching or ignore node_modules to optimize CPU and avoid unnecessary reloads
-      watch: process.env.DISABLE_HMR === 'false'
-        ? { ignored: ['**/node_modules/**', '**/.git/**', '**/dist/**'] }
-        : null,
+      watch: {
+        ignored: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/data/**'],
+      },
     },
   };
 });

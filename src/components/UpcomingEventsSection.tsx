@@ -31,7 +31,8 @@ export const UpcomingEventsSection: React.FC<UpcomingEventsSectionProps> = ({
   onOpenAuth,
   className = '',
 }) => {
-  const { user, isAuthenticated } = useAuth();
+  const { user } = useAuth();
+  const isAuthenticated = Boolean(user);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -311,7 +312,9 @@ export const UpcomingEventsSection: React.FC<UpcomingEventsSectionProps> = ({
   const formatEventDate = (dateStr: string) => {
     try {
       const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return dateStr;
+      if (isNaN(date.getTime())) {
+        return { full: dateStr, short: dateStr, day: '', month: '', dayName: '' };
+      }
 
       const daysRw = [
         'Ku Cyumweru',

@@ -940,7 +940,7 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({ onRefreshOvervie
         message={`Waba wizeye ko ushaka gusiba igikorwa "${deleteTarget?.title}"? Ibi bizagikura mu bikorwa biteganyijwe bya Korali.`}
         confirmText="Yego, Siba Igikorwa"
         cancelText="Reka"
-        isDanger={true}
+        isDestructive={true}
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />
