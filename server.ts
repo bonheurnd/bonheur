@@ -78,6 +78,54 @@ const upload = multer({
 app.use('/uploads', express.static(UPLOAD_DIR));
 
 // -------------------------------------------------------------
+// REAL-TIME EVENT STREAMING (Server-Sent Events / SSE)
+// -------------------------------------------------------------
+const eventStreamClients = new Set<express.Response>();
+
+export function broadcastRealtimeEvent(eventType: string, payload: any) {
+  const message = `event: ${eventType}\ndata: ${JSON.stringify({
+    type: eventType,
+    data: payload,
+    timestamp: new Date().toISOString()
+  })}\n\n`;
+
+  for (const client of eventStreamClients) {
+    try {
+      client.write(message);
+    } catch {
+      eventStreamClients.delete(client);
+    }
+  }
+}
+
+app.get('/api/events/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  // Send initial connection handshake
+  res.write(`event: connected\ndata: ${JSON.stringify({ status: 'connected', time: new Date().toISOString() })}\n\n`);
+  eventStreamClients.add(res);
+
+  // Keep-alive heartbeat every 20 seconds
+  const timer = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch {
+      clearInterval(timer);
+      eventStreamClients.delete(res);
+    }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(timer);
+    eventStreamClients.delete(res);
+  });
+});
+
+// -------------------------------------------------------------
 // PUBLIC BRANDING & SETTINGS API
 // -------------------------------------------------------------
 app.get('/api/branding', (req, res) => {
@@ -2129,16 +2177,206 @@ app.get('/api/about', (req, res) => {
 // -------------------------------------------------------------
 // PUBLIC CONTENT ENDPOINTS (Events, Documents, Articles)
 // -------------------------------------------------------------
-app.get('/api/events', (req, res) => {
+// -------------------------------------------------------------
+// PUBLIC & USER EVENTS ENDPOINTS (Upcoming Events & Interests)
+// -------------------------------------------------------------
+app.get('/api/events', optionalAuth, (req: AuthRequest, res) => {
   try {
-    const events = db.prepare(`
-      SELECT * FROM events
-      WHERE (is_deleted = 0 OR is_deleted IS NULL) AND status = 'published'
-      ORDER BY event_date ASC
-    `).all();
-    res.json(events);
-  } catch (err) {
+    const { category, search, upcoming_only, all } = req.query;
+    const currentUserId = req.user?.id || null;
+
+    let query = `
+      SELECT e.*,
+             (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id) as interested_count,
+             CASE WHEN ? IS NOT NULL AND EXISTS(SELECT 1 FROM event_interested ei WHERE ei.event_id = e.id AND ei.user_id = ?) THEN 1 ELSE 0 END as is_interested
+      FROM events e
+      WHERE (e.is_deleted = 0 OR e.is_deleted IS NULL)
+    `;
+    const params: any[] = [currentUserId, currentUserId];
+
+    if (all !== 'true') {
+      // By default public sees only published, non-cancelled events
+      query += ` AND (e.status = 'published' OR e.status IS NULL) AND (e.event_status != 'cancelled' OR e.event_status IS NULL)`;
+    }
+
+    if (category && category !== 'all') {
+      query += ` AND LOWER(e.category) = LOWER(?)`;
+      params.push(String(category).trim());
+    }
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      query += ` AND (e.title LIKE ? OR e.location LIKE ? OR e.description LIKE ? OR e.category LIKE ?)`;
+      params.push(term, term, term, term);
+    }
+
+    if (upcoming_only !== 'false') {
+      // Display events from yesterday onwards or with upcoming/ongoing status
+      query += ` AND (e.event_status IN ('upcoming', 'ongoing') OR e.event_date >= DATE('now', '-1 day'))`;
+    }
+
+    query += ` ORDER BY e.event_date ASC, COALESCE(e.start_time, '00:00') ASC`;
+
+    const events = db.prepare(query).all(...params) as any[];
+
+    const formattedEvents = events.map(e => ({
+      ...e,
+      interested_count: Number(e.interested_count || 0),
+      is_interested: Boolean(e.is_interested),
+    }));
+
+    res.json(formattedEvents);
+  } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch events' });
+  }
+});
+
+app.get('/api/events/categories', (req, res) => {
+  try {
+    const standardCategories = [
+      { name: 'Choir Practice', name_rw: 'Imyitozo ya Korali' },
+      { name: 'Ministry Event', name_rw: 'Ivugabutumwa & Amavuna' },
+      { name: 'Special Performance', name_rw: 'Ibitaramo Byihariye' },
+      { name: 'Concert', name_rw: 'Ibitaramo Bikomeye (Concerts)' },
+      { name: 'Worship Night', name_rw: 'Ijoro ryo Kuramya' },
+      { name: 'Fellowship', name_rw: 'Ubusabane & Amateraniro' },
+    ];
+
+    const counts = db.prepare(`
+      SELECT category, COUNT(*) as count
+      FROM events
+      WHERE (is_deleted = 0 OR is_deleted IS NULL)
+        AND (status = 'published' OR status IS NULL)
+        AND (event_status != 'cancelled' OR event_status IS NULL)
+      GROUP BY category
+    `).all() as any[];
+
+    const countMap = new Map(counts.map(c => [String(c.category || '').toLowerCase(), c.count]));
+
+    const categoriesWithCount = standardCategories.map(cat => ({
+      ...cat,
+      count: countMap.get(cat.name.toLowerCase()) || 0,
+    }));
+
+    res.json(categoriesWithCount);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch event categories' });
+  }
+});
+
+app.get('/api/events/user-interests', requireAuth, (req: AuthRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const rows = db.prepare('SELECT event_id FROM event_interested WHERE user_id = ?').all(userId) as any[];
+    res.json({ event_ids: rows.map(r => r.event_id) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch user event interests' });
+  }
+});
+
+app.get('/api/events/:id', optionalAuth, (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const currentUserId = req.user?.id || null;
+    const isAdmin = isUserAdmin(req.user?.role);
+
+    const event = db.prepare(`
+      SELECT e.*,
+             (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id) as interested_count,
+             CASE WHEN ? IS NOT NULL AND EXISTS(SELECT 1 FROM event_interested ei WHERE ei.event_id = e.id AND ei.user_id = ?) THEN 1 ELSE 0 END as is_interested
+      FROM events e
+      WHERE e.id = ? AND (e.is_deleted = 0 OR e.is_deleted IS NULL)
+    `).get(currentUserId, currentUserId, id) as any;
+
+    if (!event) {
+      return res.status(404).json({ error: 'Igikorwa ntikibonetse (Event not found)' });
+    }
+
+    event.interested_count = Number(event.interested_count || 0);
+    event.is_interested = Boolean(event.is_interested);
+
+    if (isAdmin) {
+      event.interested_users = db.prepare(`
+        SELECT u.id as user_id, u.name, u.email, u.phone, u.avatar_url, u.role, u.choir_voice, ei.created_at
+        FROM event_interested ei
+        JOIN users u ON ei.user_id = u.id
+        WHERE ei.event_id = ?
+        ORDER BY ei.created_at DESC
+      `).all(id);
+    }
+
+    res.json(event);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch event details' });
+  }
+});
+
+app.post('/api/events/:id/interest', requireAuth, (req: AuthRequest, res) => {
+  try {
+    const { id: eventId } = req.params;
+    const userId = req.user!.id;
+    const { interested } = req.body;
+
+    const event = db.prepare('SELECT id, title FROM events WHERE id = ? AND (is_deleted = 0 OR is_deleted IS NULL)').get(eventId) as any;
+    if (!event) {
+      return res.status(404).json({ error: 'Igikorwa ntikibonetse (Event not found)' });
+    }
+
+    const existing = db.prepare('SELECT 1 FROM event_interested WHERE event_id = ? AND user_id = ?').get(eventId, userId);
+
+    let isNowInterested: boolean;
+    if (typeof interested === 'boolean') {
+      if (interested) {
+        db.prepare('INSERT OR IGNORE INTO event_interested (event_id, user_id) VALUES (?, ?)').run(eventId, userId);
+        isNowInterested = true;
+      } else {
+        db.prepare('DELETE FROM event_interested WHERE event_id = ? AND user_id = ?').run(eventId, userId);
+        isNowInterested = false;
+      }
+    } else {
+      // Toggle
+      if (existing) {
+        db.prepare('DELETE FROM event_interested WHERE event_id = ? AND user_id = ?').run(eventId, userId);
+        isNowInterested = false;
+      } else {
+        db.prepare('INSERT OR IGNORE INTO event_interested (event_id, user_id) VALUES (?, ?)').run(eventId, userId);
+        isNowInterested = true;
+      }
+    }
+
+    const countRow = db.prepare('SELECT COUNT(*) as count FROM event_interested WHERE event_id = ?').get(eventId) as any;
+    const newCount = Number(countRow?.count || 0);
+
+    // Real-time broadcast to all clients via SSE
+    broadcastRealtimeEvent('event:interest', {
+      event_id: eventId,
+      user_id: userId,
+      user_name: req.user!.name,
+      is_interested: isNowInterested,
+      interested_count: newCount,
+    });
+
+    logActivity(
+      userId,
+      req.user!.name,
+      req.user!.role,
+      isNowInterested ? 'EVENT_INTEREST_ADD' : 'EVENT_INTEREST_REMOVE',
+      'events',
+      eventId,
+      `${isNowInterested ? 'Kugaragaza ubushake bwo kwitabira' : 'Kuvana ubushake bwo kwitabira'} igikorwa "${event.title}"`
+    );
+
+    res.json({
+      success: true,
+      event_id: eventId,
+      is_interested: isNowInterested,
+      interested_count: newCount,
+      message: isNowInterested
+        ? 'Wiyandikishije kugaragaza ko wishimiye iki gikorwa!'
+        : 'Wavanyeho ukwifuza kwitabira iki gikorwa.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update interest' });
   }
 });
 
@@ -2887,72 +3125,278 @@ app.patch('/api/admin/announcements/:id/status', requireAdmin, (req: AuthRequest
 });
 
 // -------------------------------------------------------------
-// EVENTS CMS
+// EVENTS CMS (Full-Featured with Real-time & Interested Registrations)
 // -------------------------------------------------------------
 app.get('/api/admin/events', requireAdmin, (req: AuthRequest, res) => {
   try {
-    const events = db.prepare(`
-      SELECT * FROM events
-      WHERE (is_deleted = 0 OR is_deleted IS NULL)
-      ORDER BY event_date ASC
-    `).all();
-    res.json(events);
-  } catch (err) {
+    const { search, category, status, include_deleted } = req.query;
+
+    let query = `
+      SELECT e.*,
+             (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id) as interested_count
+      FROM events e
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    if (include_deleted !== 'true') {
+      query += ` AND (e.is_deleted = 0 OR e.is_deleted IS NULL)`;
+    }
+
+    if (category && category !== 'all') {
+      query += ` AND LOWER(e.category) = LOWER(?)`;
+      params.push(String(category).trim());
+    }
+
+    if (status && status !== 'all') {
+      query += ` AND (e.status = ? OR e.event_status = ?)`;
+      params.push(status, status);
+    }
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      query += ` AND (e.title LIKE ? OR e.location LIKE ? OR e.description LIKE ?)`;
+      params.push(term, term, term);
+    }
+
+    query += ` ORDER BY e.event_date DESC, e.created_at DESC`;
+
+    const events = db.prepare(query).all(...params) as any[];
+
+    // Fetch quick preview of interested users for each event
+    const eventsWithUsers = events.map(ev => {
+      const interestedUsers = db.prepare(`
+        SELECT u.id as user_id, u.name, u.email, u.phone, u.avatar_url, u.role, u.choir_voice, ei.created_at
+        FROM event_interested ei
+        JOIN users u ON ei.user_id = u.id
+        WHERE ei.event_id = ?
+        ORDER BY ei.created_at DESC
+        LIMIT 6
+      `).all(ev.id);
+
+      return {
+        ...ev,
+        interested_count: Number(ev.interested_count || 0),
+        interested_users: interestedUsers,
+      };
+    });
+
+    res.json(eventsWithUsers);
+  } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch admin events' });
+  }
+});
+
+app.get('/api/admin/events/:id/interested-users', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const event = db.prepare('SELECT * FROM events WHERE id = ?').get(id) as any;
+    if (!event) {
+      return res.status(404).json({ error: 'Igikorwa ntikibonetse' });
+    }
+
+    const users = db.prepare(`
+      SELECT u.id as user_id, u.name, u.email, u.phone, u.avatar_url, u.role, u.choir_voice, u.choir_role, ei.created_at
+      FROM event_interested ei
+      JOIN users u ON ei.user_id = u.id
+      WHERE ei.event_id = ?
+      ORDER BY ei.created_at DESC
+    `).all(id);
+
+    res.json({
+      event: {
+        id: event.id,
+        title: event.title,
+        category: event.category,
+        event_date: event.event_date,
+        location: event.location,
+      },
+      total_interested: users.length,
+      users,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch interested users' });
   }
 });
 
 app.post('/api/admin/events', requireAdmin, (req: AuthRequest, res) => {
   try {
-    const { title, description, event_date, location, image_url, status } = req.body;
-    if (!title || !event_date) {
-      return res.status(400).json({ error: 'Umutwe w\'igikorwa n\'itariki birakenewe' });
+    const {
+      title,
+      category,
+      description,
+      event_date,
+      start_time,
+      end_time,
+      location,
+      image_url,
+      status,
+      event_status,
+    } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Umutwe w\'igikorwa urakenewe (Event title required)' });
+    }
+    if (!event_date || !event_date.trim()) {
+      return res.status(400).json({ error: 'Itariki y\'igikorwa irakenewe (Event date required)' });
     }
 
-    const id = 'ev_' + Date.now();
+    const id = 'ev_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
     const finalStatus = status === 'draft' ? 'draft' : 'published';
+    const finalEventStatus = ['upcoming', 'ongoing', 'completed', 'cancelled'].includes(event_status)
+      ? event_status
+      : 'upcoming';
+    const finalCategory = category?.trim() || 'Choir Practice';
 
     db.prepare(`
-      INSERT INTO events (id, title, description, event_date, location, image_url, status, is_deleted, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-    `).run(id, title.trim(), description?.trim() || '', event_date, location?.trim() || '', image_url || '', finalStatus, req.user!.id);
+      INSERT INTO events (
+        id, title, category, description, event_date, start_time, end_time,
+        location, image_url, status, event_status, is_deleted, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+    `).run(
+      id,
+      title.trim(),
+      finalCategory,
+      description?.trim() || '',
+      event_date.trim(),
+      start_time?.trim() || '15:00',
+      end_time?.trim() || '18:00',
+      location?.trim() || '',
+      image_url?.trim() || '',
+      finalStatus,
+      finalEventStatus,
+      req.user!.id
+    );
 
-    logActivity(req.user!.id, req.user!.name, req.user!.role, 'CREATE_EVENT', 'events', id, `Created event "${title}" on ${event_date}`);
+    const createdEvent = db.prepare(`
+      SELECT e.*, 0 as interested_count
+      FROM events e WHERE e.id = ?
+    `).get(id) as any;
 
-    res.status(201).json({ message: 'Igikorwa cyashyizwemo neza', id });
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'CREATE_EVENT',
+      'events',
+      id,
+      `Yashyizeho igikorwa gishya "${title.trim()}" kuri itariki ya ${event_date}`
+    );
+
+    // Broadcast real-time event creation via SSE
+    broadcastRealtimeEvent('events:created', { event: createdEvent });
+
+    res.status(201).json({
+      message: 'Igikorwa cyashyizwemo neza (Event created successfully)',
+      event: createdEvent,
+      id,
+    });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to create event' });
+    res.status(500).json({ error: err.message || 'Failed to create event' });
   }
 });
 
 app.put('/api/admin/events/:id', requireAdmin, (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { title, description, event_date, location, image_url, status } = req.body;
+    const {
+      title,
+      category,
+      description,
+      event_date,
+      start_time,
+      end_time,
+      location,
+      image_url,
+      status,
+      event_status,
+    } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Umutwe w\'igikorwa urakenewe' });
+    }
+    if (!event_date || !event_date.trim()) {
+      return res.status(400).json({ error: 'Itariki y\'igikorwa irakenewe' });
+    }
 
     db.prepare(`
       UPDATE events
-      SET title = ?, description = ?, event_date = ?, location = ?, image_url = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+      SET title = ?,
+          category = ?,
+          description = ?,
+          event_date = ?,
+          start_time = ?,
+          end_time = ?,
+          location = ?,
+          image_url = ?,
+          status = COALESCE(?, status),
+          event_status = COALESCE(?, event_status),
+          updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(title.trim(), description?.trim() || '', event_date, location?.trim() || '', image_url || '', status || 'published', id);
+    `).run(
+      title.trim(),
+      category?.trim() || 'Choir Practice',
+      description?.trim() || '',
+      event_date.trim(),
+      start_time?.trim() || '15:00',
+      end_time?.trim() || '18:00',
+      location?.trim() || '',
+      image_url?.trim() || '',
+      status || 'published',
+      event_status || 'upcoming',
+      id
+    );
 
-    logActivity(req.user!.id, req.user!.name, req.user!.role, 'UPDATE_EVENT', 'events', id, `Updated event "${title}"`);
+    const updatedEvent = db.prepare(`
+      SELECT e.*,
+             (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id) as interested_count
+      FROM events e WHERE e.id = ?
+    `).get(id) as any;
 
-    res.json({ message: 'Igikorwa cyavuguruwe neza' });
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'UPDATE_EVENT',
+      'events',
+      id,
+      `Yavuguruye igikorwa "${title.trim()}"`
+    );
+
+    // Broadcast real-time update via SSE
+    broadcastRealtimeEvent('events:updated', { event: updatedEvent });
+
+    res.json({
+      message: 'Igikorwa cyavuguruwe neza (Event updated successfully)',
+      event: updatedEvent,
+    });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to update event' });
+    res.status(500).json({ error: err.message || 'Failed to update event' });
   }
 });
 
 app.delete('/api/admin/events/:id', requireAdmin, (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    db.prepare('UPDATE events SET is_deleted = 1 WHERE id = ?').run(id);
+    const event = db.prepare('SELECT title FROM events WHERE id = ?').get(id) as any;
 
-    logActivity(req.user!.id, req.user!.name, req.user!.role, 'DELETE_EVENT', 'events', id, `Soft-deleted event ${id}`);
+    db.prepare('UPDATE events SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
 
-    res.json({ message: 'Igikorwa cyasibwe neza' });
-  } catch (err) {
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'DELETE_EVENT',
+      'events',
+      id,
+      `Yasibye igikorwa "${event?.title || id}"`
+    );
+
+    // Broadcast real-time deletion via SSE
+    broadcastRealtimeEvent('events:deleted', { id });
+
+    res.json({ message: 'Igikorwa cyasibwe neza (Event deleted successfully)', id });
+  } catch (err: any) {
     res.status(500).json({ error: 'Failed to delete event' });
   }
 });
@@ -2960,16 +3404,86 @@ app.delete('/api/admin/events/:id', requireAdmin, (req: AuthRequest, res) => {
 app.patch('/api/admin/events/:id/status', requireAdmin, (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
-    const finalStatus = status === 'draft' ? 'draft' : 'published';
+    const { status, event_status } = req.body;
 
-    db.prepare('UPDATE events SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(finalStatus, id);
+    const event = db.prepare('SELECT * FROM events WHERE id = ?').get(id) as any;
+    if (!event) {
+      return res.status(404).json({ error: 'Igikorwa ntikibonetse' });
+    }
 
-    logActivity(req.user!.id, req.user!.name, req.user!.role, 'STATUS_CHANGE', 'events', id, `Changed event status to ${finalStatus}`);
+    const finalStatus = status !== undefined ? (status === 'draft' ? 'draft' : 'published') : event.status;
+    const finalEventStatus = event_status !== undefined ? event_status : event.event_status;
 
-    res.json({ message: `Imimerere yahinduwe kuri ${finalStatus}`, status: finalStatus });
-  } catch (err) {
+    db.prepare(`
+      UPDATE events
+      SET status = ?, event_status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(finalStatus, finalEventStatus, id);
+
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'STATUS_CHANGE',
+      'events',
+      id,
+      `Yahinduye status y'igikorwa "${event.title}": ${finalStatus} (${finalEventStatus})`
+    );
+
+    const updated = db.prepare(`
+      SELECT e.*, (SELECT COUNT(*) FROM event_interested ei WHERE ei.event_id = e.id) as interested_count
+      FROM events e WHERE e.id = ?
+    `).get(id);
+
+    // Broadcast real-time update
+    broadcastRealtimeEvent('events:updated', { event: updated });
+
+    res.json({
+      message: `Imimerere yahinduwe neza`,
+      status: finalStatus,
+      event_status: finalEventStatus,
+      event: updated,
+    });
+  } catch (err: any) {
     res.status(500).json({ error: 'Failed to update event status' });
+  }
+});
+
+app.patch('/api/admin/events/:id/cancel', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const event = db.prepare('SELECT title FROM events WHERE id = ?').get(id) as any;
+    if (!event) {
+      return res.status(404).json({ error: 'Igikorwa ntikibonetse' });
+    }
+
+    db.prepare(`
+      UPDATE events
+      SET event_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(id);
+
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'CANCEL_EVENT',
+      'events',
+      id,
+      `Yahagaritse igikorwa "${event.title}"`
+    );
+
+    const updated = db.prepare('SELECT * FROM events WHERE id = ?').get(id);
+
+    // Broadcast real-time cancellation
+    broadcastRealtimeEvent('events:cancelled', { id, event: updated });
+
+    res.json({
+      message: 'Igikorwa cyahagaritswe neza (Event marked as cancelled)',
+      event: updated,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to cancel event' });
   }
 });
 

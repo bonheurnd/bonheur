@@ -124,6 +124,7 @@ function AppContent() {
                 onNavigateToTab={handleNavigateToTab}
                 onSelectCategory={handleSelectCategory}
                 onOpenSearch={() => setIsSearchOpen(true)}
+                onOpenAuth={() => setIsAuthOpen(true)}
               />
             )}
 

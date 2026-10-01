@@ -135,14 +135,44 @@ export interface Comment {
   replies?: Comment[];
 }
 
+export type EventCategory =
+  | 'Choir Practice'
+  | 'Ministry Event'
+  | 'Special Performance'
+  | 'Concert'
+  | 'Worship Night'
+  | 'Fellowship'
+  | string;
+
+export type EventStatus = 'upcoming' | 'ongoing' | 'completed' | 'cancelled';
+
+export interface InterestedUser {
+  user_id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  avatar_url?: string;
+  role?: string;
+  choir_voice?: string;
+  created_at?: string;
+}
+
 export interface EventItem {
   id: string;
   title: string;
+  category?: EventCategory;
   description?: string;
   event_date: string;
+  start_time?: string;
+  end_time?: string;
   location?: string;
   image_url?: string;
-  status: 'draft' | 'published';
+  status: 'draft' | 'published' | 'cancelled';
+  event_status?: EventStatus;
+  interested_count?: number;
+  is_interested?: boolean;
+  interested_users?: InterestedUser[];
+  created_by?: string;
   created_at?: string;
   updated_at?: string;
 }

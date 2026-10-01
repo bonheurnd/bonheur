@@ -4,6 +4,7 @@ import { ChoirLogo } from './ChoirLogo';
 import { useBranding } from '../context/BrandingContext';
 import { useAudio } from '../context/AudioContext';
 import { getAllOfflineSongs } from '../services/offlineStorage';
+import { UpcomingEventsSection } from './UpcomingEventsSection';
 import {
   Play,
   BookOpen,
@@ -26,6 +27,7 @@ interface HomeScreenProps {
   onNavigateToTab: (tab: string) => void;
   onSelectCategory?: (categoryId: string) => void;
   onOpenSearch: () => void;
+  onOpenAuth?: () => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -33,6 +35,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onNavigateToTab,
   onSelectCategory,
   onOpenSearch,
+  onOpenAuth,
 }) => {
   const { choirInfo } = useBranding();
   const { playTrack } = useAudio();
@@ -412,6 +415,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </section>
       )}
+
+      {/* Complete Upcoming Events Component */}
+      <UpcomingEventsSection onOpenAuth={onOpenAuth} />
 
       {/* Featured Songs Section */}
       <section>

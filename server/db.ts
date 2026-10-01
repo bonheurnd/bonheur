@@ -320,11 +320,25 @@ export function initDatabase() {
       event_date TEXT NOT NULL,
       location TEXT,
       image_url TEXT,
+      category TEXT DEFAULT 'Choir Practice',
+      start_time TEXT DEFAULT '15:00',
+      end_time TEXT DEFAULT '18:00',
+      event_status TEXT DEFAULT 'upcoming', -- 'upcoming', 'ongoing', 'completed', 'cancelled'
       status TEXT NOT NULL DEFAULT 'published', -- 'draft', 'published'
       created_by TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       is_deleted INTEGER DEFAULT 0
+    );
+
+    -- 19b. Event Interested (User RSVP / Interest)
+    CREATE TABLE IF NOT EXISTS event_interested (
+      event_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (event_id, user_id),
+      FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     -- 20. Documents & PDFs
@@ -418,6 +432,26 @@ export function initDatabase() {
       // Column exists
     }
   }
+
+  function safeCreateIndex(sql: string) {
+    try {
+      db.exec(sql);
+    } catch (e) {
+      // Index exists or column handled
+    }
+  }
+
+  safeAddColumn('events', "category TEXT DEFAULT 'Choir Practice'");
+  safeAddColumn('events', "start_time TEXT DEFAULT '15:00'");
+  safeAddColumn('events', "end_time TEXT DEFAULT '18:00'");
+  safeAddColumn('events', "event_status TEXT DEFAULT 'upcoming'");
+  safeAddColumn('events', 'image_url TEXT');
+
+  safeCreateIndex('CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date);');
+  safeCreateIndex('CREATE INDEX IF NOT EXISTS idx_events_status ON events(status);');
+  safeCreateIndex('CREATE INDEX IF NOT EXISTS idx_events_category ON events(category);');
+  safeCreateIndex('CREATE INDEX IF NOT EXISTS idx_event_interested_event ON event_interested(event_id);');
+  safeCreateIndex('CREATE INDEX IF NOT EXISTS idx_event_interested_user ON event_interested(user_id);');
 
   safeAddColumn('users', 'is_disabled INTEGER DEFAULT 0');
   safeAddColumn('users', 'choir_voice TEXT'); // 'Soprano', 'Alto', 'Tenor', 'Bass', 'Musician', 'Director'
@@ -972,29 +1006,112 @@ function seedOfficialSongs() {
     12
   );
 
-  // Seed sample events if empty
-  const eventsCount = db.prepare('SELECT COUNT(*) as count FROM events').get() as { count: number };
-  if (eventsCount.count === 0) {
-    const insertEvent = db.prepare(`
-      INSERT INTO events (id, title, description, event_date, location, image_url, status, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, 'published', 'usr_admin_default')
-    `);
-    insertEvent.run(
-      'evt_1',
-      'Igiterane cyo kuramya no guhimbaza (Praise & Worship Night)',
-      'Ijoro ridasanzwe ryo kuramya Imana no guhimbaza hamwe na La Lumiere Choir n\'andi matsinda y\'indirimbo ku rusengero rwa ADEPR Nyanza.',
-      '2026-10-15 17:00:00',
-      'ADEPR Nyanza Sanctuary, Kicukiro',
-      'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=800&auto=format&fit=crop&q=80'
+  // Seed sample events if empty or enhance existing
+  const seedUpcomingEvents = [
+    {
+      id: 'evt_choir_practice',
+      title: 'Imyitozo Rusange ya Korali (Weekly General Rehearsal)',
+      category: 'Choir Practice',
+      description: "Imyitozo ihuza amajwi yose (Soprano, Alto, Tenor, Bass) yo gutunganya indirimbo nshya z'amashimwe z'iki gihe.",
+      event_date: '2026-10-04',
+      start_time: '15:00',
+      end_time: '18:00',
+      location: 'ADEPR Nyanza - Choir Hall, Kicukiro',
+      image_url: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&auto=format&fit=crop&q=80',
+      status: 'published',
+      event_status: 'upcoming',
+    },
+    {
+      id: 'evt_praise_night',
+      title: 'Ijoro ryo Kuramya no Guhimbaza (Praise & Worship Night)',
+      category: 'Special Performance',
+      description: "Ijoro ridasanzwe ry'ububyutse n'amashimwe hamwe na La Lumiere Choir n'abandi baramyi b'indashyikirwa kuri ADEPR Nyanza.",
+      event_date: '2026-10-16',
+      start_time: '17:30',
+      end_time: '21:30',
+      location: 'ADEPR Nyanza Main Sanctuary, Kigali',
+      image_url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=800&auto=format&fit=crop&q=80',
+      status: 'published',
+      event_status: 'upcoming',
+    },
+    {
+      id: 'evt_ministry_outreach',
+      title: "Urugendo rw'Ivugabutumwa & Gusura Amatorero (Ministry Outreach)",
+      category: 'Ministry Event',
+      description: "Gusangira ijambo ry'Imana no guhimbaza hamwe n'abakristo mu masangano yo mu ntara y'Amajyepfo.",
+      event_date: '2026-10-25',
+      start_time: '09:00',
+      end_time: '16:30',
+      location: 'ADEPR Paruwasi ya Nyanza & Huye',
+      image_url: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=800&auto=format&fit=crop&q=80',
+      status: 'published',
+      event_status: 'upcoming',
+    },
+    {
+      id: 'evt_album_launch',
+      title: 'Igitaramo cyo Kumurika Album Nshya 2026 (Grand Album Launch Concert)',
+      category: 'Concert',
+      description: "Kumurika ku mugaragaro album nshya y'indirimbo z'amashimwe n'amashusho meza cyane ya Korali La Lumiere. Murahawe ikaze!",
+      event_date: '2026-11-22',
+      start_time: '14:00',
+      end_time: '19:30',
+      location: 'Kigali Arena / ADEPR Nyanza Grounds',
+      image_url: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=800&auto=format&fit=crop&q=80',
+      status: 'published',
+      event_status: 'upcoming',
+    },
+  ];
+
+  const upsertEvent = db.prepare(`
+    INSERT INTO events (id, title, category, description, event_date, start_time, end_time, location, image_url, status, event_status, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'usr_admin_default')
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      category = COALESCE(events.category, excluded.category),
+      description = excluded.description,
+      event_date = excluded.event_date,
+      start_time = COALESCE(events.start_time, excluded.start_time),
+      end_time = COALESCE(events.end_time, excluded.end_time),
+      location = excluded.location,
+      image_url = excluded.image_url,
+      event_status = COALESCE(events.event_status, excluded.event_status)
+  `);
+
+  for (const ev of seedUpcomingEvents) {
+    upsertEvent.run(
+      ev.id,
+      ev.title,
+      ev.category,
+      ev.description,
+      ev.event_date,
+      ev.start_time,
+      ev.end_time,
+      ev.location,
+      ev.image_url,
+      ev.status,
+      ev.event_status
     );
-    insertEvent.run(
-      'evt_2',
-      'Imyitozo rusange yo Kwitegura Pasika (Easter Rehearsal)',
-      'Imyitozo y\'abaririmbyi bose ba La Lumiere Choir yo gutunganya indirimbo nshya zizakoreshwa mu minsi mikuru.',
-      '2026-09-30 14:00:00',
-      'La Lumiere Music Room, ADEPR Nyanza',
-      'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&auto=format&fit=crop&q=80'
-    );
+  }
+
+  // Seed sample event interest registrations if empty
+  try {
+    const interestCount = db.prepare('SELECT COUNT(*) as count FROM event_interested').get() as { count: number };
+    if (interestCount.count === 0) {
+      const existingUsers = db.prepare('SELECT id FROM users LIMIT 5').all() as { id: string }[];
+      if (existingUsers.length > 0) {
+        const insertInterest = db.prepare('INSERT OR IGNORE INTO event_interested (event_id, user_id) VALUES (?, ?)');
+        for (const u of existingUsers) {
+          try {
+            insertInterest.run('evt_praise_night', u.id);
+            insertInterest.run('evt_album_launch', u.id);
+          } catch {
+            // Ignore any individual foreign key conflict
+          }
+        }
+      }
+    }
+  } catch (err) {
+    // Graceful skip if table is being initialized
   }
 
   // Seed sample documents if empty

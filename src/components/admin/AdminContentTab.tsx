@@ -26,6 +26,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
+import { AdminEventsTab } from './AdminEventsTab';
 
 interface AdminContentTabProps {
   songs: Song[];
@@ -49,7 +50,6 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
 
   // Modal editing states
   const [editingAnnouncement, setEditingAnnouncement] = useState<Partial<Announcement> | null>(null);
-  const [editingEvent, setEditingEvent] = useState<Partial<EventItem> | null>(null);
   const [editingDocument, setEditingDocument] = useState<Partial<DocumentItem> | null>(null);
   const [editingArticle, setEditingArticle] = useState<Partial<ContentArticle> | null>(null);
 
@@ -129,45 +129,6 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
       setSuccessMsg(isNew ? 'Itangazo ryashyizwemo neza' : 'Itangazo ryavuguruwe');
       setTimeout(() => setSuccessMsg(''), 3000);
       setEditingAnnouncement(null);
-      fetchAllContent();
-    } catch (err: any) {
-      setErrorMsg(err.message);
-    }
-  };
-
-  // -------------------------------------------------------------
-  // EVENTS HANDLERS
-  // -------------------------------------------------------------
-  const handleSaveEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingEvent || !editingEvent.title || !editingEvent.event_date) {
-      setErrorMsg('Umutwe n\'itariki y\'igikorwa birakenewe');
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem('lalumiere_token');
-      const isNew = !editingEvent.id;
-      const url = isNew ? '/api/admin/events' : `/api/admin/events/${editingEvent.id}`;
-      const method = isNew ? 'POST' : 'PUT';
-
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(editingEvent),
-      });
-
-      const { errorMessage } = await parseResponseSafely(res);
-      if (!res.ok) {
-        throw new Error(errorMessage || 'Failed to save event');
-      }
-
-      setSuccessMsg(isNew ? 'Igikorwa cyashyizwemo neza' : 'Igikorwa cyavuguruwe');
-      setTimeout(() => setSuccessMsg(''), 3000);
-      setEditingEvent(null);
       fetchAllContent();
     } catch (err: any) {
       setErrorMsg(err.message);
@@ -462,95 +423,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
 
       {/* ================= 2. EVENTS ================= */}
       {subTab === 'events' && (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <button
-              onClick={() =>
-                setEditingEvent({
-                  title: '',
-                  description: '',
-                  event_date: new Date().toISOString().split('T')[0],
-                  location: 'ADEPR Nyanza, Kicukiro',
-                  status: 'published',
-                })
-              }
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-950 hover:bg-blue-900 text-white rounded-xl text-xs font-bold shadow-xs transition-transform active:scale-95"
-            >
-              <Plus className="w-4 h-4 text-amber-400" />
-              <span>Ongera Igikorwa Gishya</span>
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {events.length === 0 ? (
-              <div className="bg-white rounded-3xl p-8 text-center text-xs text-slate-400 border border-slate-200/80">
-                Nta bikorwa (events) birashyirwamo
-              </div>
-            ) : (
-              events.map(ev => (
-                <div
-                  key={ev.id}
-                  className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-extrabold text-xs sm:text-sm text-slate-900">{ev.title}</h3>
-                      <span
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                          ev.status === 'draft'
-                            ? 'bg-slate-100 text-slate-600 border-slate-200'
-                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                        }`}
-                      >
-                        {ev.status || 'published'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
-                      <span className="flex items-center gap-1 font-semibold text-blue-950">
-                        <Calendar className="w-3 h-3 text-blue-900" />
-                        <span>{ev.event_date}</span>
-                      </span>
-                      {ev.location && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-slate-400" />
-                          <span>{ev.location}</span>
-                        </span>
-                      )}
-                    </div>
-
-                    {ev.description && (
-                      <p className="text-xs text-slate-600 line-clamp-2">{ev.description}</p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
-                    <button
-                      onClick={() => setEditingEvent(ev)}
-                      className="p-1.5 text-slate-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors"
-                      title="Hindura"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() =>
-                        setDeleteTarget({
-                          type: 'events',
-                          id: ev.id,
-                          title: ev.title,
-                        })
-                      }
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                      title="Siba"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        <AdminEventsTab onRefreshOverview={fetchAllContent} />
       )}
 
       {/* ================= 3. DOCUMENTS & SOLFA ================= */}
@@ -818,85 +691,6 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                   className="px-4 py-2 bg-blue-950 hover:bg-blue-900 text-white font-bold text-xs rounded-xl"
                 >
                   Bika Itangazo
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ================= EDIT EVENT MODAL ================= */}
-      {editingEvent && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h3 className="font-extrabold text-sm text-slate-900">
-                {editingEvent.id ? 'Hindura Igikorwa' : 'Igikorwa Gishya'}
-              </h3>
-              <button onClick={() => setEditingEvent(null)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEvent} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Umutwe w'Igikorwa *</label>
-                <input
-                  type="text"
-                  required
-                  value={editingEvent.title || ''}
-                  onChange={e => setEditingEvent({ ...editingEvent, title: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Itariki *</label>
-                  <input
-                    type="date"
-                    required
-                    value={editingEvent.event_date || ''}
-                    onChange={e => setEditingEvent({ ...editingEvent, event_date: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Ahobizabera</label>
-                  <input
-                    type="text"
-                    value={editingEvent.location || ''}
-                    onChange={e => setEditingEvent({ ...editingEvent, location: e.target.value })}
-                    placeholder="ADEPR Nyanza"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Ibisobanuro</label>
-                <textarea
-                  rows={4}
-                  value={editingEvent.description || ''}
-                  onChange={e => setEditingEvent({ ...editingEvent, description: e.target.value })}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-xs"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setEditingEvent(null)}
-                  className="px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
-                >
-                  Reka
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-950 hover:bg-blue-900 text-white font-bold text-xs rounded-xl"
-                >
-                  Bika Igikorwa
                 </button>
               </div>
             </form>

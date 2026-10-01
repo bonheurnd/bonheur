@@ -30,11 +30,13 @@ import {
   PhoneCall,
   Share2,
   BarChart3,
+  Calendar,
 } from 'lucide-react';
 
 import { AdminLoginPortal } from './admin/AdminLoginPortal';
 import { AdminOverviewTab } from './admin/AdminOverviewTab';
 import { AdminSongsTab } from './admin/AdminSongsTab';
+import { AdminEventsTab } from './admin/AdminEventsTab';
 import { AdminMediaTab } from './admin/AdminMediaTab';
 import { AdminContentTab } from './admin/AdminContentTab';
 import { AdminCommentsTab } from './admin/AdminCommentsTab';
@@ -59,6 +61,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [activeTab, setActiveTab] = useState<
     | 'overview'
+    | 'events'
     | 'songs'
     | 'media'
     | 'content'
@@ -260,6 +263,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar bg-slate-100 p-1.5 rounded-2xl">
         {[
           { id: 'overview', label: 'Incamake', icon: Shield },
+          { id: 'events', label: 'Ibikorwa (Events)', icon: Calendar },
           { id: 'songs', label: 'Indirimbo', icon: BookOpen },
           { id: 'media', label: 'Amajwi & Amafoto', icon: Volume2 },
           { id: 'content', label: 'Ibirimo & Amatangazo', icon: FileText },
@@ -300,8 +304,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onNavigateTab={tab => setActiveTab(tab as any)}
           onOpenAddSong={() => setActiveTab('songs')}
           onOpenAddAnnouncement={() => setActiveTab('content')}
-          onOpenAddEvent={() => setActiveTab('content')}
+          onOpenAddEvent={() => setActiveTab('events')}
         />
+      )}
+
+      {/* 1b. EVENTS TAB */}
+      {activeTab === 'events' && (
+        <AdminEventsTab onRefreshOverview={loadDashboardData} />
       )}
 
       {/* 2. SONGS TAB */}
