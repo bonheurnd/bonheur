@@ -101,6 +101,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     accent_color: branding.accent_color || '#2563eb',
     choir_name: choirInfo.choir_name || 'La Lumiere Choir',
     affiliation: choirInfo.affiliation || 'ADEPR Nyanza, Kicukiro District, Rwanda',
+    welcome_message: choirInfo.welcome_message || "Igitabo cy'Indirimbo 92 zo Guhimbaza no Gusingiza Imana muri Korali La Lumiere.",
+    scripture_verse: choirInfo.scripture_verse || '“Zaburi 147:1; Yobu 8:7”',
+    songs_badge_text: choirInfo.songs_badge_text || '92',
     about_story: choirInfo.about_story || '',
     mission: choirInfo.mission || '',
     vision: choirInfo.vision || '',
@@ -109,6 +112,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   });
   const [isSavingBranding, setIsSavingBranding] = useState(false);
   const [brandingSuccess, setBrandingSuccess] = useState(false);
+
+  useEffect(() => {
+    setBrandingForm(prev => ({
+      ...prev,
+      main_logo_url: branding.main_logo_url || prev.main_logo_url,
+      app_icon_url: branding.app_icon_url || prev.app_icon_url,
+      splash_logo_url: branding.splash_logo_url || prev.splash_logo_url,
+      primary_color: branding.primary_color || prev.primary_color,
+      secondary_color: branding.secondary_color || prev.secondary_color,
+      accent_color: branding.accent_color || prev.accent_color,
+      choir_name: choirInfo.choir_name || prev.choir_name,
+      affiliation: choirInfo.affiliation || prev.affiliation,
+      welcome_message: choirInfo.welcome_message || prev.welcome_message,
+      scripture_verse: choirInfo.scripture_verse || prev.scripture_verse,
+      songs_badge_text: choirInfo.songs_badge_text || prev.songs_badge_text,
+      about_story: choirInfo.about_story || prev.about_story,
+      mission: choirInfo.mission || prev.mission,
+      vision: choirInfo.vision || prev.vision,
+      contact_phone: choirInfo.contact_phone || prev.contact_phone,
+      contact_email: choirInfo.contact_email || prev.contact_email,
+    }));
+  }, [branding, choirInfo]);
 
   // Load Dashboard Data
   const loadDashboardData = async () => {
@@ -539,6 +564,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   }
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
                 />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">
+                  Ubutumwa bwo Kwakira ku Riburiro (Home Welcome Subtitle):
+                </label>
+                <textarea
+                  rows={2}
+                  value={brandingForm.welcome_message}
+                  onChange={e =>
+                    setBrandingForm({ ...brandingForm, welcome_message: e.target.value })
+                  }
+                  placeholder="Igitabo cy'Indirimbo 92 zo Guhimbaza no Gusingiza Imana muri Korali La Lumiere."
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl leading-relaxed font-medium text-xs sm:text-sm text-slate-800"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Iyi nyandiko igaragara munsi y'izina rya Korali ku rubuga rw'ibanze (HomeScreen hero banner).
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">
+                    Icyanditswe cy'Intego (Scripture / Theme Verse):
+                  </label>
+                  <input
+                    type="text"
+                    value={brandingForm.scripture_verse}
+                    onChange={e =>
+                      setBrandingForm({ ...brandingForm, scripture_verse: e.target.value })
+                    }
+                    placeholder="“Zaburi 147:1; Yobu 8:7”"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 font-medium italic"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Igaragara ku ibendera ry'ibanze mu nyandiko y'umuhondo.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1">
+                    Badge y'Indirimbo kuri Search Bar (Songs Counter Badge):
+                  </label>
+                  <input
+                    type="text"
+                    value={brandingForm.songs_badge_text}
+                    onChange={e =>
+                      setBrandingForm({ ...brandingForm, songs_badge_text: e.target.value })
+                    }
+                    placeholder="92"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 font-mono font-bold"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Imibare igaragara mu gasanduku ko gushakisha indirimbo (urugero: "92" cyangwa "Igitabo cyose").
+                  </p>
+                </div>
               </div>
 
               <div>

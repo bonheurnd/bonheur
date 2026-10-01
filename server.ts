@@ -4225,10 +4225,16 @@ app.put('/api/admin/branding', requireAdmin, (req: AuthRequest, res) => {
       background_color,
       text_color,
       choir_name,
+      affiliation,
+      church_affiliation,
       about_story,
       mission_statement,
+      mission,
       vision_statement,
+      vision,
       welcome_message,
+      scripture_verse,
+      songs_badge_text,
       contact_phone,
       contact_email
     } = req.body;
@@ -4255,13 +4261,16 @@ app.put('/api/admin/branding', requireAdmin, (req: AuthRequest, res) => {
 
     // Update text settings
     const updateSetting = db.prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)');
-    if (choir_name) updateSetting.run('choir_name', choir_name);
-    if (about_story) updateSetting.run('about_story', about_story);
-    if (mission_statement) updateSetting.run('mission_statement', mission_statement);
-    if (vision_statement) updateSetting.run('vision_statement', vision_statement);
-    if (welcome_message) updateSetting.run('welcome_message', welcome_message);
-    if (contact_phone) updateSetting.run('contact_phone', contact_phone);
-    if (contact_email) updateSetting.run('contact_email', contact_email);
+    if (choir_name !== undefined) updateSetting.run('choir_name', String(choir_name).trim());
+    if (affiliation !== undefined || church_affiliation !== undefined) updateSetting.run('church_affiliation', String(affiliation || church_affiliation).trim());
+    if (about_story !== undefined) updateSetting.run('about_story', String(about_story).trim());
+    if (mission_statement !== undefined || mission !== undefined) updateSetting.run('mission_statement', String(mission_statement || mission).trim());
+    if (vision_statement !== undefined || vision !== undefined) updateSetting.run('vision_statement', String(vision_statement || vision).trim());
+    if (welcome_message !== undefined) updateSetting.run('welcome_message', String(welcome_message).trim());
+    if (scripture_verse !== undefined) updateSetting.run('scripture_verse', String(scripture_verse).trim());
+    if (songs_badge_text !== undefined) updateSetting.run('songs_badge_text', String(songs_badge_text).trim());
+    if (contact_phone !== undefined) updateSetting.run('contact_phone', String(contact_phone).trim());
+    if (contact_email !== undefined) updateSetting.run('contact_email', String(contact_email).trim());
 
     // Audit log
     db.prepare("INSERT INTO audit_logs (id, user_id, action, resource, details) VALUES (?, ?, 'UPDATE_BRANDING', 'branding_settings', ?)")

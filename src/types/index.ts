@@ -323,6 +323,9 @@ export interface BrandingSettings {
 export interface ChoirInfo {
   choir_name: string;
   affiliation: string;
+  welcome_message?: string;
+  scripture_verse?: string;
+  songs_badge_text?: string;
   about_story: string;
   mission: string;
   vision: string;

@@ -765,7 +765,9 @@ export function initDatabase() {
   const defaultSettings = [
     { key: 'choir_name', value: 'La Lumiere Choir', description: 'Official choir name' },
     { key: 'church_affiliation', value: 'ADEPR Nyanza, Kicukiro District, Kigali, Rwanda', description: 'Church and district affiliation' },
-    { key: 'welcome_message', value: 'Sing, worship, listen, and support our ministry.', description: 'Home welcome message' },
+    { key: 'welcome_message', value: "Igitabo cy'Indirimbo 92 zo Guhimbaza no Gusingiza Imana muri Korali La Lumiere.", description: 'Home welcome subtitle' },
+    { key: 'scripture_verse', value: '“Zaburi 147:1; Yobu 8:7”', description: 'Choir motto / scripture verse' },
+    { key: 'songs_badge_text', value: '92', description: 'Song search badge / counter text' },
     { key: 'contact_phone', value: '+250 788 000 000', description: 'Contact phone number' },
     { key: 'contact_email', value: 'info@lalumierechoir.rw', description: 'Contact email' },
     { key: 'about_story', value: 'La Lumiere Choir is a renowned gospel choir based at ADEPR Nyanza in Kicukiro District, Kigali, Rwanda. Dedicated to spreading the Gospel of Jesus Christ through anointed worship, inspiring harmonies, and soul-stirring hymns in Kinyarwanda and other languages.', description: 'Choir story & background' },

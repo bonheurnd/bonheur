@@ -3,6 +3,7 @@ import { Song, Announcement, SongCategory } from '../types';
 import { ChoirLogo } from './ChoirLogo';
 import { useBranding } from '../context/BrandingContext';
 import { useAudio } from '../context/AudioContext';
+import { useAuth } from '../context/AuthContext';
 import { getAllOfflineSongs } from '../services/offlineStorage';
 import { UpcomingEventsSection } from './UpcomingEventsSection';
 import {
@@ -20,6 +21,9 @@ import {
   Cloud,
   Heart,
   ShieldCheck,
+  Edit3,
+  Save,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface HomeScreenProps {
@@ -37,8 +41,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenSearch,
   onOpenAuth,
 }) => {
-  const { choirInfo } = useBranding();
+  const { choirInfo, updateBranding, refreshBranding } = useBranding();
   const { playTrack } = useAudio();
+  const { isAdmin } = useAuth();
 
   const [songs, setSongs] = useState<Song[]>([]);
   const [categories, setCategories] = useState<SongCategory[]>([]);
@@ -47,6 +52,50 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [searchResults, setSearchResults] = useState<Song[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Admin Quick Edit state for home subtitle, motto, and songs badge
+  const [isEditingHomeText, setIsEditingHomeText] = useState(false);
+  const [editWelcomeMessage, setEditWelcomeMessage] = useState(
+    choirInfo.welcome_message || "Igitabo cy'Indirimbo 92 zo Guhimbaza no Gusingiza Imana muri Korali La Lumiere."
+  );
+  const [editScriptureVerse, setEditScriptureVerse] = useState(
+    choirInfo.scripture_verse || '“Zaburi 147:1; Yobu 8:7”'
+  );
+  const [editSongsBadgeText, setEditSongsBadgeText] = useState(
+    choirInfo.songs_badge_text || '92'
+  );
+  const [isSavingQuickEdit, setIsSavingQuickEdit] = useState(false);
+  const [quickEditSaved, setQuickEditSaved] = useState(false);
+
+  useEffect(() => {
+    if (choirInfo) {
+      if (choirInfo.welcome_message) setEditWelcomeMessage(choirInfo.welcome_message);
+      if (choirInfo.scripture_verse) setEditScriptureVerse(choirInfo.scripture_verse);
+      if (choirInfo.songs_badge_text) setEditSongsBadgeText(choirInfo.songs_badge_text);
+    }
+  }, [choirInfo]);
+
+  const handleSaveQuickEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setIsSavingQuickEdit(true);
+      await updateBranding({
+        welcome_message: editWelcomeMessage,
+        scripture_verse: editScriptureVerse,
+        songs_badge_text: editSongsBadgeText,
+      });
+      await refreshBranding();
+      setQuickEditSaved(true);
+      setTimeout(() => {
+        setQuickEditSaved(false);
+        setIsEditingHomeText(false);
+      }, 1000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update home text');
+    } finally {
+      setIsSavingQuickEdit(false);
+    }
+  };
 
   useEffect(() => {
     const loadHomeData = async () => {
@@ -204,13 +253,25 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             {choirInfo.choir_name}
           </h1>
 
-          <p className="mt-2 text-sm text-slate-300 font-medium leading-relaxed">
-            Igitabo cy'Indirimbo 92 zo Guhimbaza no Gusingiza Imana muri Korali La Lumiere.
+          <p className="mt-2 text-sm sm:text-base text-slate-200 font-normal sm:font-medium leading-relaxed tracking-wide drop-shadow-xs max-w-md mx-auto">
+            {choirInfo.welcome_message || "Igitabo cy'Indirimbo 92 zo Guhimbaza no Gusingiza Imana muri Korali La Lumiere."}
           </p>
 
           <p className="mt-1 text-xs text-amber-300/90 font-semibold italic">
-            “Zaburi 147:1; Yobu 8:7”
+            {choirInfo.scripture_verse || "“Zaburi 147:1; Yobu 8:7”"}
           </p>
+
+          {/* Admin Quick Edit Button on Hero */}
+          {isAdmin && (
+            <button
+              onClick={() => setIsEditingHomeText(true)}
+              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 text-[11px] font-bold rounded-full border border-amber-400/40 transition-all cursor-pointer shadow-xs active:scale-95"
+              title="Admin can easily change and update home text"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>Hindura Ubutumwa (Admin Edit)</span>
+            </button>
+          )}
 
           {/* Quick Action Buttons */}
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5 w-full">
@@ -253,8 +314,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <X className="w-4 h-4" />
               </button>
             ) : (
-              <span className="absolute right-3 text-[10px] font-bold text-slate-400 bg-slate-200/60 px-1.5 py-0.5 rounded">
-                92
+              <span className="absolute right-3 text-[10px] sm:text-[11px] font-bold text-blue-950 bg-amber-400/25 border border-amber-400/50 px-2 py-0.5 rounded-full shadow-2xs font-mono tracking-tight flex items-center gap-1">
+                {choirInfo.songs_badge_text || (songs.length > 0 ? `${songs.length}` : '92')}
               </span>
             )}
           </div>
@@ -478,6 +539,107 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           ))}
         </div>
       </section>
+
+      {/* Admin Quick Edit Modal for Home Text & Badge */}
+      {isEditingHomeText && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900 font-serif">
+                    Hindura Ubutumwa bw'Ibanze
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Admin can easily change and update home text
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditingHomeText(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveQuickEdit} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Ubutumwa bwo Kwakira (Home Welcome Subtitle):
+                </label>
+                <textarea
+                  rows={2}
+                  value={editWelcomeMessage}
+                  onChange={e => setEditWelcomeMessage(e.target.value)}
+                  placeholder="Igitabo cy'Indirimbo 92 zo Guhimbaza no Gusingiza Imana muri Korali La Lumiere."
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-900 font-medium leading-relaxed"
+                  required
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Igaragara munsi y'izina rya Korali ku ibendera ry'ibanze.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Icyanditswe cy'Intego (Scripture / Theme Verse):
+                </label>
+                <input
+                  type="text"
+                  value={editScriptureVerse}
+                  onChange={e => setEditScriptureVerse(e.target.value)}
+                  placeholder="“Zaburi 147:1; Yobu 8:7”"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 italic font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Badge y'Indirimbo kuri Search Bar (Songs Counter Badge):
+                </label>
+                <input
+                  type="text"
+                  value={editSongsBadgeText}
+                  onChange={e => setEditSongsBadgeText(e.target.value)}
+                  placeholder="92"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 font-mono font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-900"
+                />
+              </div>
+
+              {quickEditSaved && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Byavuguruwe neza! (Updated successfully)</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingHomeText(false)}
+                  disabled={isSavingQuickEdit}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                >
+                  Reka (Cancel)
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingQuickEdit}
+                  className="px-5 py-2 bg-blue-950 hover:bg-blue-900 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSavingQuickEdit ? 'Kubika...' : 'Bika Impinduka (Save & Update)'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
