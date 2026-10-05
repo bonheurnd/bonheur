@@ -11,7 +11,7 @@ import { createServer as createViteServer } from 'vite';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import multer from 'multer';
-import { db, initDatabase, logActivity } from './server/db.js';
+import { db, initDatabase, logActivity, getMomoDonationSettings, updateMomoDonationSettings } from './server/db.js';
 import {
   generateToken,
   generatePasswordResetToken,
@@ -35,6 +35,8 @@ import {
   AuthRequest
 } from './server/auth.js';
 import { initiateRwandaPayment, verifyPaymentTransaction, validateRwandaPhoneNumber } from './server/momo.js';
+import { RwandaPaymentGatewayService, validateAndNormalizeRwandaPhone } from './server/rwandaPaymentGateway.js';
+import { paymentsRouter } from './server/payments.js';
 import { sendPasswordResetEmail, isEmailServiceConfigured, getEmailConfig } from './server/email.js';
 
 // Initialize DB schema & seeds
@@ -55,7 +57,12 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '20mb' }));
+app.use(express.json({
+  limit: '20mb',
+  verify: (req: any, _res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Ensure upload directory exists
@@ -2008,8 +2015,10 @@ app.post('/api/comments/:id/report', requireAuth, (req: AuthRequest, res) => {
 });
 
 // -------------------------------------------------------------
-// RWANDA MOBILE MONEY DONATIONS & PAYMENTS API
+// RWANDA MOBILE MONEY DONATIONS & DIRECT PAYMENT GATEWAY API
 // -------------------------------------------------------------
+app.use('/api/payments', paymentsRouter);
+
 app.get('/api/payment-providers', (req, res) => {
   try {
     const providers = db.prepare('SELECT id, name, slug, is_enabled, environment, merchant_account_id FROM payment_providers WHERE is_enabled = 1').all();
@@ -2019,10 +2028,42 @@ app.get('/api/payment-providers', (req, res) => {
   }
 });
 
+// Public donation & recipient settings
+app.get('/api/donations/settings', (req, res) => {
+  try {
+    const settings = getMomoDonationSettings();
+    const gatewayStatus = RwandaPaymentGatewayService.getGatewayStatus();
+    res.json({
+      settings: {
+        recipient_name: settings.recipient_name,
+        recipient_phone: settings.phone_number,
+        donation_purpose: settings.purpose,
+        title: settings.title,
+        intro_message: settings.intro_message,
+        payment_instructions: settings.instructions,
+        min_amount: settings.min_amount || 100,
+        max_amount: settings.max_amount || 5000000,
+        is_enabled: settings.is_enabled,
+        supported_methods: settings.supported_methods || ['mtn-momo', 'airtel-money'],
+        last_updated: settings.updated_at,
+      },
+      gateway: gatewayStatus,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch donation settings' });
+  }
+});
+
 app.post('/api/donations/validate-phone', (req, res) => {
   const { phone } = req.body;
-  const result = validateRwandaPhoneNumber(phone);
-  res.json(result);
+  const result = validateAndNormalizeRwandaPhone(phone);
+  res.json({
+    valid: result.isValid,
+    carrier: result.carrier,
+    formatted: result.formatted10,
+    formattedInternational: result.formatted12,
+    error: result.errorMessage,
+  });
 });
 
 app.post('/api/donations/initiate', optionalAuth, async (req: AuthRequest, res) => {
@@ -2037,60 +2078,79 @@ app.post('/api/donations/initiate', optionalAuth, async (req: AuthRequest, res) 
       donation_purpose,
       donorName,
       donor_name,
+      donorEmail,
+      donor_email,
       isAnonymous,
-      is_anonymous
+      is_anonymous,
+      idempotency_key,
     } = req.body;
 
+    // Check if donations are globally enabled by Admin
+    const currentSettings = getMomoDonationSettings();
+    if (!currentSettings.is_enabled) {
+      return res.status(403).json({
+        error: 'Kwakira impano n\'inkunga byahagaritswe by\'agateganyo n\'ubuyobozi (Online donations are temporarily paused).',
+      });
+    }
+
     const phoneNumber = phone || phone_number;
-    const provider = provider_slug || paymentMethod;
-    const purpose = donationPurpose || donation_purpose;
-    const name = donorName || donor_name;
+    const provider = provider_slug || paymentMethod || 'mtn-momo';
+    const purpose = donationPurpose || donation_purpose || currentSettings.purpose;
+    const name = donorName || donor_name || req.user?.name || 'Umugiraneza';
+    const email = donorEmail || donor_email || req.user?.email || null;
     const anonymous = isAnonymous !== undefined ? isAnonymous : is_anonymous;
+    const parsedAmount = Number(amount);
 
-    const response = await initiateRwandaPayment({
+    if (isNaN(parsedAmount) || parsedAmount < (currentSettings.min_amount || 100)) {
+      return res.status(400).json({
+        error: `Amafaranga ntashobora kuba munsi ya ${(currentSettings.min_amount || 100).toLocaleString()} RWF`,
+      });
+    }
+
+    if (parsedAmount > (currentSettings.max_amount || 5000000)) {
+      return res.status(400).json({
+        error: `Amafaranga ntashobora kurenga ${(currentSettings.max_amount || 5000000).toLocaleString()} RWF`,
+      });
+    }
+
+    const response = await RwandaPaymentGatewayService.initiatePayment({
       userId: req.user?.id,
-      donorName: name || req.user?.name,
-      donorPhone: phoneNumber,
-      amount: Number(amount),
-      currency: 'RWF',
+      donorName: name,
+      phone: phoneNumber,
+      donorEmail: email,
+      amount: parsedAmount,
       paymentMethod: provider === 'airtel-money' ? 'airtel-money' : 'mtn-momo',
-      donationPurpose: purpose || 'General Choir Ministry & Production',
-      isAnonymous: Boolean(anonymous)
+      donationPurpose: purpose,
+      isAnonymous: Boolean(anonymous),
+      idempotencyKey: idempotency_key,
     });
 
-    const transaction = db.prepare('SELECT * FROM payment_transactions WHERE internal_reference = ?').get(response.internalReference);
-
-    res.json({
-      ...response,
-      transaction: transaction || {
-        internal_reference: response.internalReference,
-        provider_slug: provider === 'airtel-money' ? 'airtel-money' : 'mtn-momo',
-        amount: Number(amount),
-        currency: 'RWF',
-        status: response.status,
-        donor_phone: phoneNumber,
-        donor_name: name || 'Supporter',
-        donation_purpose: purpose,
-        prompt_instructions: response.promptInstructions,
-        created_at: new Date().toISOString()
-      }
+    // Realtime notification to admin/connected clients
+    broadcastRealtimeEvent('donation_updated', {
+      transaction: response.transaction,
+      type: 'INITIATED',
     });
+
+    res.json(response);
   } catch (err: any) {
+    console.error('[API /api/donations/initiate error]:', err.message);
     res.status(400).json({ error: err.message || 'Ntibyakunze gutangiza ubwishyu' });
   }
 });
 
-const handleVerifyDonation = (req: any, res: any) => {
+const handleVerifyDonationStatus = async (req: any, res: any) => {
   try {
-    const transaction = verifyPaymentTransaction(req.params.id || req.params.reference);
+    const identifier = req.params.reference || req.params.id;
+    const transaction = await RwandaPaymentGatewayService.verifyPaymentStatus(identifier);
     res.json(transaction);
   } catch (err: any) {
     res.status(404).json({ error: err.message || 'Transaction not found' });
   }
 };
 
-app.get('/api/donations/verify/:id', handleVerifyDonation);
-app.get('/api/donations/status/:reference', handleVerifyDonation);
+app.get('/api/donations/verify/:id', handleVerifyDonationStatus);
+app.get('/api/donations/status/:reference', handleVerifyDonationStatus);
+app.get('/api/donations/:reference/status', handleVerifyDonationStatus);
 
 app.get('/api/donations/history', requireAuth, (req: AuthRequest, res) => {
   try {
@@ -2107,23 +2167,28 @@ app.get('/api/donations/history', requireAuth, (req: AuthRequest, res) => {
   }
 });
 
-// Webhook callback endpoint for telco callbacks (MTN / Airtel)
-app.post('/api/donations/callback', (req, res) => {
+// Official Payment Webhook Handler (Paypack & Direct Rwanda Gateways)
+const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
   try {
-    const { referenceId, status, providerReference } = req.body;
-    if (referenceId) {
-      const normalizedStatus = status === 'SUCCESSFUL' ? 'successful' : (status === 'FAILED' ? 'failed' : 'pending');
-      db.prepare(`
-        UPDATE payment_transactions
-        SET status = ?, provider_reference = COALESCE(?, provider_reference), completed_at = CURRENT_TIMESTAMP
-        WHERE internal_reference = ? OR id = ?
-      `).run(normalizedStatus, providerReference, referenceId, referenceId);
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+    const result = RwandaPaymentGatewayService.handleWebhook(req.headers, rawBody, req.body);
+
+    if (result.transaction) {
+      broadcastRealtimeEvent('donation_updated', {
+        transaction: result.transaction,
+        type: 'STATUS_CHANGED',
+      });
     }
-    res.status(200).json({ status: 'ok' });
-  } catch (err) {
-    res.status(500).json({ error: 'Callback processing error' });
+
+    res.status(200).json({ status: 'ok', received: true });
+  } catch (err: any) {
+    console.error('[Webhook processing error]:', err.message);
+    res.status(400).json({ error: err.message || 'Webhook verification failed' });
   }
-});
+};
+
+app.post('/api/payments/webhook', handleIncomingWebhook);
+app.post('/api/donations/callback', handleIncomingWebhook);
 
 // -------------------------------------------------------------
 // ANNOUNCEMENTS & NOTIFICATIONS
@@ -4522,6 +4587,121 @@ app.put('/api/admin/payment-settings', requireAdmin, (req: AuthRequest, res) => 
     res.json({ message: 'Amakuru yo kwishyura yavuguruwe (Payment settings updated)' });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to update payment settings' });
+  }
+});
+
+// Admin Donation Recipient & Gateway Settings
+app.get('/api/admin/donation-settings', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const settings = getMomoDonationSettings();
+    const gateway = RwandaPaymentGatewayService.getGatewayStatus();
+    res.json({
+      settings,
+      gateway,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch admin donation settings' });
+  }
+});
+
+app.put('/api/admin/donation-settings', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const updates = req.body;
+    const updated = updateMomoDonationSettings(updates, req.user!.id);
+
+    db.prepare("INSERT INTO audit_logs (id, user_id, action, resource, details) VALUES (?, ?, 'UPDATE_DONATION_SETTINGS', 'momo_donation_settings', ?)")
+      .run(`log_${Date.now()}`, req.user!.id, `Updated donation recipient to ${updated.recipient_name} (${updated.phone_number})`);
+
+    res.json({
+      message: 'Amakuru yo kwakira impano yavuguruwe neza (Donation settings saved successfully)',
+      settings: updated,
+      gateway: RwandaPaymentGatewayService.getGatewayStatus(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update donation settings' });
+  }
+});
+
+app.get('/api/admin/donations/:id', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const tx = db.prepare(`
+      SELECT pt.*, u.email as user_email, u.name as user_display_name
+      FROM payment_transactions pt
+      LEFT JOIN users u ON pt.user_id = u.id
+      WHERE pt.id = ? OR pt.internal_reference = ?
+    `).get(req.params.id, req.params.id) as any;
+
+    if (!tx) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    let safeMetadata = null;
+    if (tx.gateway_metadata) {
+      try {
+        safeMetadata = JSON.parse(tx.gateway_metadata);
+      } catch {
+        safeMetadata = null;
+      }
+    }
+
+    res.json({
+      ...tx,
+      gateway_metadata: safeMetadata,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load transaction details' });
+  }
+});
+
+app.post('/api/admin/donations/:id/verify', requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const transaction = await RwandaPaymentGatewayService.verifyPaymentStatus(req.params.id);
+    broadcastRealtimeEvent('donation_updated', {
+      transaction,
+      type: 'ADMIN_VERIFY',
+    });
+    res.json({
+      message: 'Transaction status synchronized with payment gateway',
+      transaction,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to verify transaction status' });
+  }
+});
+
+app.post('/api/admin/donations/:id/refund', requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const tx = db.prepare('SELECT * FROM payment_transactions WHERE id = ?').get(req.params.id) as any;
+    if (!tx) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    if (tx.status !== 'successful') {
+      return res.status(400).json({ error: 'Only successful donations can be refunded' });
+    }
+
+    const gateway = RwandaPaymentGatewayService.getGatewayStatus();
+    if (!gateway.supports_refunds) {
+      return res.status(400).json({
+        error: 'Uburyo bwo gusubiza amafaranga (Refund) ntibushyigikiwe na gateway ikoreshwa muri iki gihe. Nyamuneka koresha MTN/Airtel merchant portal.',
+      });
+    }
+
+    db.prepare(`
+      UPDATE payment_transactions
+      SET status = 'cancelled', failure_reason = 'Refunded by administrator', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(tx.id);
+
+    db.prepare("INSERT INTO audit_logs (id, user_id, action, resource, details) VALUES (?, ?, 'DONATION_REFUNDED', 'payment_transactions', ?)")
+      .run(`log_${Date.now()}`, req.user!.id, `Refunded donation ${tx.internal_reference} of ${tx.amount} RWF`);
+
+    const updated = db.prepare('SELECT * FROM payment_transactions WHERE id = ?').get(tx.id);
+    broadcastRealtimeEvent('donation_updated', { transaction: updated, type: 'REFUNDED' });
+
+    res.json({ message: 'Ubusabe bwo gusubiza amafaranga bwemejwe', transaction: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to process refund' });
   }
 });
 

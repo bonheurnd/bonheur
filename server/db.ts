@@ -506,6 +506,19 @@ export function initDatabase() {
   safeAddColumn('content_articles', "type TEXT DEFAULT 'article'");
   safeAddColumn('content_articles', 'published_at DATETIME DEFAULT CURRENT_TIMESTAMP');
 
+  // Direct Rwanda Payment Gateway & Donation Settings Migrations
+  safeAddColumn('payment_transactions', 'donor_email TEXT');
+  safeAddColumn('payment_transactions', 'updated_at DATETIME');
+  safeAddColumn('payment_transactions', 'gateway_metadata TEXT');
+  safeAddColumn('payment_transactions', 'idempotency_key TEXT');
+  safeAddColumn('momo_donation_settings', 'min_amount REAL DEFAULT 100');
+  safeAddColumn('momo_donation_settings', 'max_amount REAL DEFAULT 5000000');
+  safeAddColumn('momo_donation_settings', "supported_methods TEXT DEFAULT '[\"mtn-momo\",\"airtel-money\"]'");
+
+  safeCreateIndex('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_transactions_ref ON payment_transactions(internal_reference);');
+  safeCreateIndex('CREATE INDEX IF NOT EXISTS idx_payment_transactions_idemp ON payment_transactions(idempotency_key);');
+  safeCreateIndex('CREATE INDEX IF NOT EXISTS idx_payment_transactions_created ON payment_transactions(created_at);');
+
   try {
     db.prepare("UPDATE content_articles SET published_at = COALESCE(published_at, published_date, created_at) WHERE published_at IS NULL").run();
   } catch (e) {
@@ -1428,16 +1441,33 @@ export function getMomoDonationSettings() {
       recipient_name: 'ISHIMWECYANE Rahab',
       momo_network: 'MTN MoMo',
       phone_number: '0793917846',
-      purpose: 'Supporting La Lumiere Choir and its activities.',
+      purpose: 'La Lumiere Choir Donations',
       title: 'Gushyigikira Korali (Support La Lumiere Choir)',
       intro_message: "Umutima wanyu wo gutanga ufasha Korali La Lumiere mu bikorwa by'ivugabutumwa, gufata amajwi n'amashusho y'indirimbo nshya, no kwamamaza Ubutumwa Bwiza bwa Yesu Kristo.",
-      instructions: `1. Fungura menu ya MTN MoMo kuri telefone yawe (*182#) cyangwa porogaramu ya MTN MoMo App.\n2. Hitamo ahanditse "Kwohereza Amafaranga" (Send Money).\n3. Andikamo nimero ya telefone: 0793917846.\n4. Banza usuzume neza ko izina ry'uwakira ari "ISHIMWECYANE Rahab" mbere yo kwemeza.\n5. Shyiramo umubare w'amafaranga wifuza gutanga hanyuma wandike umubare w'ibanga (MoMo PIN) wemeze.`,
+      instructions: `Reba kuri telefone yawe maze wemeze umubare w'ibanga wa Mobile Money kwishyura (Enter your Mobile Money PIN to approve payment)`,
+      min_amount: 100,
+      max_amount: 5000000,
+      supported_methods: '["mtn-momo","airtel-money"]',
       updated_at: new Date().toISOString()
     };
   }
 
+  let parsedMethods = ['mtn-momo', 'airtel-money'];
+  if (settings.supported_methods) {
+    try {
+      parsedMethods = typeof settings.supported_methods === 'string'
+        ? JSON.parse(settings.supported_methods)
+        : settings.supported_methods;
+    } catch {
+      parsedMethods = ['mtn-momo', 'airtel-money'];
+    }
+  }
+
   return {
     ...settings,
+    min_amount: Number(settings.min_amount) || 100,
+    max_amount: Number(settings.max_amount) || 5000000,
+    supported_methods: parsedMethods,
     is_enabled: Boolean(settings.is_enabled)
   };
 }
@@ -1452,13 +1482,18 @@ export function updateMomoDonationSettings(updates: any, updatedBy?: string) {
   const title = updates.title !== undefined ? String(updates.title).trim() : current.title;
   const introMessage = updates.intro_message !== undefined ? String(updates.intro_message).trim() : current.intro_message;
   const instructions = updates.instructions !== undefined ? String(updates.instructions).trim() : current.instructions;
+  const minAmount = updates.min_amount !== undefined ? Math.max(100, Number(updates.min_amount)) : (current.min_amount || 100);
+  const maxAmount = updates.max_amount !== undefined ? Math.min(10000000, Number(updates.max_amount)) : (current.max_amount || 5000000);
+  const supportedMethods = updates.supported_methods !== undefined
+    ? (Array.isArray(updates.supported_methods) ? JSON.stringify(updates.supported_methods) : String(updates.supported_methods))
+    : JSON.stringify(current.supported_methods || ['mtn-momo', 'airtel-money']);
 
   db.prepare(`
     INSERT INTO momo_donation_settings (
       id, is_enabled, recipient_name, momo_network, phone_number,
-      purpose, title, intro_message, instructions, updated_at, updated_by
+      purpose, title, intro_message, instructions, min_amount, max_amount, supported_methods, updated_at, updated_by
     ) VALUES (
-      'default_momo', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?
+      'default_momo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?
     )
     ON CONFLICT(id) DO UPDATE SET
       is_enabled = excluded.is_enabled,
@@ -1469,11 +1504,14 @@ export function updateMomoDonationSettings(updates: any, updatedBy?: string) {
       title = excluded.title,
       intro_message = excluded.intro_message,
       instructions = excluded.instructions,
+      min_amount = excluded.min_amount,
+      max_amount = excluded.max_amount,
+      supported_methods = excluded.supported_methods,
       updated_at = CURRENT_TIMESTAMP,
       updated_by = excluded.updated_by
   `).run(
     isEnabled, recipientName, momoNetwork, phoneNumber,
-    purpose, title, introMessage, instructions, updatedBy || null
+    purpose, title, introMessage, instructions, minAmount, maxAmount, supportedMethods, updatedBy || null
   );
 
   // Synchronize to app_settings as well for cross-table compatibility
@@ -1483,6 +1521,8 @@ export function updateMomoDonationSettings(updates: any, updatedBy?: string) {
   updateSetting.run('donation_momo_phone', phoneNumber);
   updateSetting.run('donation_momo_purpose', purpose);
   updateSetting.run('donation_momo_enabled', String(Boolean(isEnabled)));
+  updateSetting.run('donation_momo_min', String(minAmount));
+  updateSetting.run('donation_momo_max', String(maxAmount));
 
   // Write to persistent json file in data/ directory for guaranteed Render restart persistence
   try {
@@ -1500,6 +1540,9 @@ export function updateMomoDonationSettings(updates: any, updatedBy?: string) {
       title,
       intro_message: introMessage,
       instructions,
+      min_amount: minAmount,
+      max_amount: maxAmount,
+      supported_methods: supportedMethods,
       updated_at: new Date().toISOString(),
       updated_by: updatedBy || null
     }, null, 2), 'utf8');

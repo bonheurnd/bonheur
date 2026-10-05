@@ -261,16 +261,47 @@ export interface PaymentTransaction {
   user_id?: string;
   donor_name: string;
   donor_phone: string;
+  donor_email?: string;
   amount: number;
   currency: string;
   provider_slug: 'mtn-momo' | 'airtel-money' | string;
   donation_purpose: string;
-  status: 'pending' | 'processing' | 'successful' | 'failed' | 'cancelled';
+  status: 'created' | 'pending' | 'processing' | 'successful' | 'failed' | 'cancelled' | 'expired';
   failure_reason?: string;
   is_anonymous: number | boolean;
   created_at: string;
+  updated_at?: string;
   completed_at?: string;
   user_email?: string;
+  gateway_metadata?: any;
+  idempotency_key?: string;
+}
+
+export interface DonationRecipientSettings {
+  recipient_name: string;
+  recipient_phone: string;
+  donation_purpose: string;
+  title: string;
+  intro_message: string;
+  payment_instructions: string;
+  min_amount: number;
+  max_amount: number;
+  is_enabled: boolean;
+  supported_methods: string[];
+  last_updated?: string;
+}
+
+export interface GatewayStatusSummary {
+  is_configured: boolean;
+  status: 'connected' | 'sandbox_ready' | 'configuration_required';
+  environment: 'live' | 'test';
+  active_provider: 'paypack' | 'mtn-momo' | 'direct-rwandapay' | 'none';
+  provider_name: string;
+  webhook_url: string;
+  missing_credentials: string[];
+  supports_refunds: boolean;
+  min_amount: number;
+  max_amount: number;
 }
 
 export interface PaymentProvider {

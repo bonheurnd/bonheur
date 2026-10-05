@@ -1,0 +1,16 @@
+{
+  "id": "default_momo",
+  "is_enabled": true,
+  "recipient_name": "ISHIMWECYANE Rahab",
+  "momo_network": "MTN MoMo",
+  "phone_number": "0793917846",
+  "purpose": "La Lumiere Choir Donations",
+  "title": "Gushyigikira Korali La Lumiere",
+  "intro_message": "Umutima wanyu wo gutanga ufasha Korali La Lumiere mu bikorwa by ivugabutumwa n ivugurura ry ibikoresho by umuziki.",
+  "instructions": "Reba kuri telefone yawe maze wemeze umubare w ibanga (PIN) wa Mobile Money kwishyura.",
+  "min_amount": 100,
+  "max_amount": 5000000,
+  "supported_methods": "[\"mtn-momo\",\"airtel-money\"]",
+  "updated_at": "2026-10-05T18:15:09.962Z",
+  "updated_by": "usr_1790061236930"
+}
