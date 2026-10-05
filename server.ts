@@ -2010,6 +2010,15 @@ app.post('/api/comments/:id/report', requireAuth, (req: AuthRequest, res) => {
 // -------------------------------------------------------------
 // RWANDA MOBILE MONEY DONATIONS & PAYMENTS API
 // -------------------------------------------------------------
+app.get('/api/payment-providers', (req, res) => {
+  try {
+    const providers = db.prepare('SELECT id, name, slug, is_enabled, environment, merchant_account_id FROM payment_providers WHERE is_enabled = 1').all();
+    res.json(providers);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch payment providers' });
+  }
+});
+
 app.post('/api/donations/validate-phone', (req, res) => {
   const { phone } = req.body;
   const result = validateRwandaPhoneNumber(phone);

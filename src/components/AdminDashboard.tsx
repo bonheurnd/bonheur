@@ -45,6 +45,7 @@ import { AdminMemberStats } from './admin/AdminMemberStats';
 import { AdminLogsTab } from './admin/AdminLogsTab';
 import { AdminContactTab } from './admin/AdminContactTab';
 import { AdminSocialMediaTab } from './admin/AdminSocialMediaTab';
+import { AdminDonationSettingsTab } from './admin/AdminDonationSettingsTab';
 import { safeFetchJson } from '../utils/api';
 
 interface AdminDashboardProps {
@@ -650,119 +651,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* 9. DONATIONS & FINANCIALS */}
-      {activeTab === 'donations' && (
-        <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs space-y-4 animate-in fade-in duration-150">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-            <div>
-              <h3 className="font-extrabold text-base text-slate-900 font-serif">
-                Ibyinjijwe n'Impano za Mobile Money (Financials)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Uruhererekane rwose rwa MTN Mobile Money na Airtel Money mu Rwanda
-              </p>
-            </div>
-            <button
-              onClick={handleExportDonations}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-800 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-              <span>Sohora Raporo (Export CSV)</span>
-            </button>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500 uppercase font-mono text-[10px]">
-                  <th className="py-2.5 px-2">Ref</th>
-                  <th className="py-2.5 px-2">Utanze</th>
-                  <th className="py-2.5 px-2">Phone</th>
-                  <th className="py-2.5 px-2">Amafaranga</th>
-                  <th className="py-2.5 px-2">Uburyo</th>
-                  <th className="py-2.5 px-2">Status</th>
-                  <th className="py-2.5 px-2">Itariki</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {donations.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
-                      Nta nyemezabwishyu zibonetse
-                    </td>
-                  </tr>
-                ) : (
-                  donations.map(d => (
-                    <tr key={d.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-2 font-mono font-bold text-slate-800">
-                        {d.internal_reference}
-                      </td>
-                      <td className="py-2 px-2 font-medium text-slate-900">{d.donor_name}</td>
-                      <td className="py-2 px-2 font-mono text-slate-600">{d.donor_phone}</td>
-                      <td className="py-2 px-2 font-mono font-bold text-emerald-900">
-                        {d.amount.toLocaleString()} RWF
-                      </td>
-                      <td className="py-2 px-2 uppercase font-semibold text-slate-700">
-                        {d.provider_slug}
-                      </td>
-                      <td className="py-2 px-2">
-                        <span
-                          className={`text-[9px] uppercase font-bold px-1.5 py-0.2 rounded ${
-                            d.status === 'successful'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : d.status === 'failed'
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {d.status}
-                        </span>
-                      </td>
-                      <td className="py-2 px-2 text-slate-400 text-[10px]">
-                        {new Date(d.created_at).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 10. PAYMENT GATEWAY SETTINGS */}
-      {activeTab === 'payments' && (
-        <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs space-y-4 animate-in fade-in duration-150">
-          <h3 className="font-extrabold text-base text-slate-900 font-serif">
-            Amakuru ya Payment Gateway (MTN & Airtel Rwanda)
-          </h3>
-          <p className="text-xs text-slate-500">
-            Igenzura rya API endpoints, Merchant IDs, na Webhook URL yo kwakira ibyemezo bya Mobile Money.
-          </p>
-
-          <div className="space-y-3">
-            {providers.map(p => (
-              <div
-                key={p.id}
-                className="p-4 rounded-2xl border border-slate-200 space-y-2 text-xs bg-slate-50/50"
-              >
-                <div className="flex items-center justify-between">
-                  <h4 className="font-extrabold text-sm text-slate-900">{p.name}</h4>
-                  <span className="px-2 py-0.5 bg-blue-50 text-blue-900 font-mono font-bold rounded">
-                    {p.environment}
-                  </span>
-                </div>
-                <p className="text-slate-500 font-mono text-[11px]">Slug: {p.slug}</p>
-                <p className="text-slate-500 font-mono text-[11px]">
-                  Endpoint: {p.api_endpoint || 'Default gateway'}
-                </p>
-                <p className="text-slate-500 font-mono text-[11px]">
-                  Merchant Account: {p.merchant_account_id || 'Configured via .env'}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* 9. DONATIONS & FINANCIALS & PAYMENT GATEWAY */}
+      {(activeTab === 'donations' || activeTab === 'payments') && (
+        <AdminDonationSettingsTab
+          donations={donations}
+          providers={providers}
+          onRefresh={loadDashboardData}
+        />
       )}
     </div>
   );

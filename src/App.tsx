@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { AuthProvider } from './context/AuthContext';
 import { BrandingProvider } from './context/BrandingContext';
 import { AudioProvider } from './context/AudioContext';
+import { DonationProvider } from './context/DonationContext';
 
 import { Navbar } from './components/Navbar';
 import { BottomNav } from './components/BottomNav';
@@ -247,7 +248,9 @@ export default function App() {
     <AuthProvider>
       <BrandingProvider>
         <AudioProvider>
-          <AppContent />
+          <DonationProvider>
+            <AppContent />
+          </DonationProvider>
         </AudioProvider>
       </BrandingProvider>
     </AuthProvider>

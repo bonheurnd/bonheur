@@ -6,6 +6,7 @@ import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
 import { getAllOfflineSongs } from '../services/offlineStorage';
 import { UpcomingEventsSection } from './UpcomingEventsSection';
+import { MomoDonationSection } from './MomoDonationSection';
 import {
   Play,
   BookOpen,
@@ -479,6 +480,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
       {/* Complete Upcoming Events Component */}
       <UpcomingEventsSection onOpenAuth={onOpenAuth} />
+
+      {/* Dynamic MTN MoMo Support & Donation Section */}
+      <MomoDonationSection onNavigateToAdmin={() => onNavigateToTab('admin')} />
 
       {/* Featured Songs Section */}
       <section>

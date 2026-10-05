@@ -286,6 +286,31 @@ export function initDatabase() {
       updated_by TEXT
     );
 
+    -- 16c. MTN MoMo Donation Settings
+    CREATE TABLE IF NOT EXISTS momo_donation_settings (
+      id TEXT PRIMARY KEY DEFAULT 'default_momo',
+      is_enabled INTEGER DEFAULT 1,
+      recipient_name TEXT NOT NULL,
+      momo_network TEXT NOT NULL,
+      phone_number TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      title TEXT NOT NULL,
+      intro_message TEXT NOT NULL,
+      instructions TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_by TEXT
+    );
+
+    -- 16d. Donor Voluntary Pledges & Encouragement Notes
+    CREATE TABLE IF NOT EXISTS donor_pledges (
+      id TEXT PRIMARY KEY,
+      donor_name TEXT NOT NULL,
+      donor_phone TEXT NOT NULL,
+      amount INTEGER DEFAULT 0,
+      message TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- 17. Audit Logs
     CREATE TABLE IF NOT EXISTS audit_logs (
       id TEXT PRIMARY KEY,
@@ -885,6 +910,72 @@ export function initDatabase() {
     insertSocial.run(s.id, s.platform, s.display_name, s.url, s.icon, s.is_enabled, s.display_order, s.description);
   }
 
+  // Seed initial MTN MoMo Donation Settings
+  // Initial values as specified in Master Prompt:
+  // - Recipient name: ISHIMWECYANE Rahab
+  // - Network: MTN MoMo
+  // - Phone number: 0793917846
+  // - Purpose: Supporting La Lumiere Choir and its activities.
+  const donationSettingsFile = path.resolve(process.cwd(), 'data', 'momo_donation_settings.json');
+  let savedFileSettings: any = null;
+  if (fs.existsSync(donationSettingsFile)) {
+    try {
+      savedFileSettings = JSON.parse(fs.readFileSync(donationSettingsFile, 'utf8'));
+    } catch (e) {
+      console.error('Error reading saved donation settings file:', e);
+    }
+  }
+
+  const existingMomo = db.prepare('SELECT * FROM momo_donation_settings WHERE id = ?').get('default_momo') as any;
+  if (!existingMomo) {
+    const isEnabled = savedFileSettings?.is_enabled !== undefined ? (savedFileSettings.is_enabled ? 1 : 0) : 1;
+    const recipientName = savedFileSettings?.recipient_name || 'ISHIMWECYANE Rahab';
+    const momoNetwork = savedFileSettings?.momo_network || 'MTN MoMo';
+    const phoneNumber = savedFileSettings?.phone_number || '0793917846';
+    const purpose = savedFileSettings?.purpose || 'Supporting La Lumiere Choir and its activities.';
+    const title = savedFileSettings?.title || 'Gushyigikira Korali (Support La Lumiere Choir)';
+    const introMessage = savedFileSettings?.intro_message || "Umutima wanyu wo gutanga ufasha Korali La Lumiere mu bikorwa by'ivugabutumwa, gufata amajwi n'amashusho y'indirimbo nshya, no kwamamaza Ubutumwa Bwiza bwa Yesu Kristo.";
+    const instructions = savedFileSettings?.instructions || `1. Fungura menu ya MTN MoMo kuri telefone yawe (*182#) cyangwa porogaramu ya MTN MoMo App.\n2. Hitamo ahanditse "Kwohereza Amafaranga" (Send Money).\n3. Andikamo nimero ya telefone: 0793917846.\n4. Banza usuzume neza ko izina ry'uwakira ari "ISHIMWECYANE Rahab" mbere yo kwemeza.\n5. Shyiramo umubare w'amafaranga wifuza gutanga hanyuma wandike umubare w'ibanga (MoMo PIN) wemeze.`;
+
+    db.prepare(`
+      INSERT INTO momo_donation_settings (
+        id, is_enabled, recipient_name, momo_network, phone_number,
+        purpose, title, intro_message, instructions
+      ) VALUES (
+        'default_momo', ?, ?, ?, ?, ?, ?, ?, ?
+      )
+    `).run(isEnabled, recipientName, momoNetwork, phoneNumber, purpose, title, introMessage, instructions);
+
+    // Also mirror to app_settings
+    const upsertSetting = db.prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)');
+    upsertSetting.run('donation_momo_recipient', recipientName);
+    upsertSetting.run('donation_momo_network', momoNetwork);
+    upsertSetting.run('donation_momo_phone', phoneNumber);
+    upsertSetting.run('donation_momo_purpose', purpose);
+    upsertSetting.run('donation_momo_enabled', String(Boolean(isEnabled)));
+
+    // Create file backup
+    try {
+      if (!fs.existsSync(path.dirname(donationSettingsFile))) {
+        fs.mkdirSync(path.dirname(donationSettingsFile), { recursive: true });
+      }
+      fs.writeFileSync(donationSettingsFile, JSON.stringify({
+        id: 'default_momo',
+        is_enabled: Boolean(isEnabled),
+        recipient_name: recipientName,
+        momo_network: momoNetwork,
+        phone_number: phoneNumber,
+        purpose,
+        title,
+        intro_message: introMessage,
+        instructions,
+        updated_at: new Date().toISOString()
+      }, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Error writing donation settings backup file:', e);
+    }
+  }
+
   // Seed the 4 official categories and 92 authentic songs from LA_LUMIERE_CHORALE_SONGS_APP_READY.json
   seedOfficialSongs();
 }
@@ -1309,6 +1400,134 @@ export function setupFirstAdminAccount(options: {
 }
 
 export const initializeFirstAdminAccount = setupFirstAdminAccount;
+
+// =============================================================
+// MTN MOMO DONATION SETTINGS & DONOR PLEDGES HELPERS
+// =============================================================
+export function getMomoDonationSettings() {
+  let settings = db.prepare('SELECT * FROM momo_donation_settings WHERE id = ?').get('default_momo') as any;
+  if (!settings) {
+    // Check backup JSON file
+    const donationSettingsFile = path.resolve(process.cwd(), 'data', 'momo_donation_settings.json');
+    if (fs.existsSync(donationSettingsFile)) {
+      try {
+        const fileContent = JSON.parse(fs.readFileSync(donationSettingsFile, 'utf8'));
+        if (fileContent && fileContent.recipient_name) {
+          settings = fileContent;
+        }
+      } catch (e) {
+        console.error('Failed to parse donation backup file:', e);
+      }
+    }
+  }
+
+  if (!settings) {
+    settings = {
+      id: 'default_momo',
+      is_enabled: 1,
+      recipient_name: 'ISHIMWECYANE Rahab',
+      momo_network: 'MTN MoMo',
+      phone_number: '0793917846',
+      purpose: 'Supporting La Lumiere Choir and its activities.',
+      title: 'Gushyigikira Korali (Support La Lumiere Choir)',
+      intro_message: "Umutima wanyu wo gutanga ufasha Korali La Lumiere mu bikorwa by'ivugabutumwa, gufata amajwi n'amashusho y'indirimbo nshya, no kwamamaza Ubutumwa Bwiza bwa Yesu Kristo.",
+      instructions: `1. Fungura menu ya MTN MoMo kuri telefone yawe (*182#) cyangwa porogaramu ya MTN MoMo App.\n2. Hitamo ahanditse "Kwohereza Amafaranga" (Send Money).\n3. Andikamo nimero ya telefone: 0793917846.\n4. Banza usuzume neza ko izina ry'uwakira ari "ISHIMWECYANE Rahab" mbere yo kwemeza.\n5. Shyiramo umubare w'amafaranga wifuza gutanga hanyuma wandike umubare w'ibanga (MoMo PIN) wemeze.`,
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  return {
+    ...settings,
+    is_enabled: Boolean(settings.is_enabled)
+  };
+}
+
+export function updateMomoDonationSettings(updates: any, updatedBy?: string) {
+  const current = getMomoDonationSettings();
+  const isEnabled = updates.is_enabled !== undefined ? (updates.is_enabled ? 1 : 0) : (current.is_enabled ? 1 : 0);
+  const recipientName = updates.recipient_name !== undefined ? String(updates.recipient_name).trim() : current.recipient_name;
+  const momoNetwork = updates.momo_network !== undefined ? String(updates.momo_network).trim() : current.momo_network;
+  const phoneNumber = updates.phone_number !== undefined ? String(updates.phone_number).trim() : current.phone_number;
+  const purpose = updates.purpose !== undefined ? String(updates.purpose).trim() : current.purpose;
+  const title = updates.title !== undefined ? String(updates.title).trim() : current.title;
+  const introMessage = updates.intro_message !== undefined ? String(updates.intro_message).trim() : current.intro_message;
+  const instructions = updates.instructions !== undefined ? String(updates.instructions).trim() : current.instructions;
+
+  db.prepare(`
+    INSERT INTO momo_donation_settings (
+      id, is_enabled, recipient_name, momo_network, phone_number,
+      purpose, title, intro_message, instructions, updated_at, updated_by
+    ) VALUES (
+      'default_momo', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      is_enabled = excluded.is_enabled,
+      recipient_name = excluded.recipient_name,
+      momo_network = excluded.momo_network,
+      phone_number = excluded.phone_number,
+      purpose = excluded.purpose,
+      title = excluded.title,
+      intro_message = excluded.intro_message,
+      instructions = excluded.instructions,
+      updated_at = CURRENT_TIMESTAMP,
+      updated_by = excluded.updated_by
+  `).run(
+    isEnabled, recipientName, momoNetwork, phoneNumber,
+    purpose, title, introMessage, instructions, updatedBy || null
+  );
+
+  // Synchronize to app_settings as well for cross-table compatibility
+  const updateSetting = db.prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)');
+  updateSetting.run('donation_momo_recipient', recipientName);
+  updateSetting.run('donation_momo_network', momoNetwork);
+  updateSetting.run('donation_momo_phone', phoneNumber);
+  updateSetting.run('donation_momo_purpose', purpose);
+  updateSetting.run('donation_momo_enabled', String(Boolean(isEnabled)));
+
+  // Write to persistent json file in data/ directory for guaranteed Render restart persistence
+  try {
+    const backupPath = path.resolve(process.cwd(), 'data', 'momo_donation_settings.json');
+    if (!fs.existsSync(path.dirname(backupPath))) {
+      fs.mkdirSync(path.dirname(backupPath), { recursive: true });
+    }
+    fs.writeFileSync(backupPath, JSON.stringify({
+      id: 'default_momo',
+      is_enabled: Boolean(isEnabled),
+      recipient_name: recipientName,
+      momo_network: momoNetwork,
+      phone_number: phoneNumber,
+      purpose,
+      title,
+      intro_message: introMessage,
+      instructions,
+      updated_at: new Date().toISOString(),
+      updated_by: updatedBy || null
+    }, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Failed to backup donation settings to file:', err);
+  }
+
+  return getMomoDonationSettings();
+}
+
+export function getDonorPledges() {
+  return db.prepare('SELECT * FROM donor_pledges ORDER BY created_at DESC LIMIT 100').all();
+}
+
+export function createDonorPledge(data: { donor_name: string; donor_phone: string; amount?: number; message?: string }) {
+  const id = `pld_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  db.prepare(`
+    INSERT INTO donor_pledges (id, donor_name, donor_phone, amount, message)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    id,
+    data.donor_name.trim(),
+    data.donor_phone.trim(),
+    Number(data.amount) || 0,
+    data.message ? data.message.trim() : null
+  );
+  return db.prepare('SELECT * FROM donor_pledges WHERE id = ?').get(id);
+}
 
 // Call database initializer
 initDatabase();

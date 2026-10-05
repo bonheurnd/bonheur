@@ -366,3 +366,26 @@ export interface LeadershipContactRecord {
   updated_by?: string;
 }
 
+export interface MomoDonationSettings {
+  id?: string;
+  is_enabled: boolean | number;
+  recipient_name: string;
+  momo_network: string;
+  phone_number: string;
+  purpose: string;
+  title: string;
+  intro_message: string;
+  instructions: string;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export interface DonorPledge {
+  id: string;
+  donor_name: string;
+  donor_phone: string;
+  amount: number;
+  message?: string;
+  created_at: string;
+}
+
