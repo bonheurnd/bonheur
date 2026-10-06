@@ -29,6 +29,13 @@ interface MomoDonationSectionProps {
 
 const PRESET_AMOUNTS = [1000, 2000, 5000, 10000, 25000, 50000];
 
+// Regex for Rwandan mobile phone numbers:
+// MTN Rwanda: ^07[89][0-9]{7}$
+// All Rwanda mobile: ^07[2389][0-9]{7}$ (MTN + Airtel)
+const RWANDA_PHONE_REGEX_STRICT = /^07[2389][0-9]{7}$/;
+const RWANDA_MTN_REGEX = /^07[89][0-9]{7}$/;
+const RWANDA_AIRTEL_REGEX = /^07[23][0-9]{7}$/;
+
 export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
   onSuccess,
   onNavigateToAdmin,
@@ -107,6 +114,12 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
   const maxAmt = recipientSettings.max_amount || 5000000;
   const finalAmount = isCustom ? Number(customAmount) : selectedAmount;
 
+  // Normalized clean phone for regex checks
+  const cleanPhoneInput = phone.trim().replace(/[\s\-\(\)\.]/g, '').replace(/^\+250/, '0').replace(/^250/, '0');
+  const isMtnPhone = RWANDA_MTN_REGEX.test(cleanPhoneInput);
+  const isAirtelPhone = RWANDA_AIRTEL_REGEX.test(cleanPhoneInput);
+  const isPhoneRegexValid = RWANDA_PHONE_REGEX_STRICT.test(cleanPhoneInput);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -137,27 +150,38 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
       return;
     }
 
+    // Rwandan phone regex validation (e.g. ^07[89][0-9]{7}$ for MTN, ^07[2389][0-9]{7}$ overall)
+    if (!isPhoneRegexValid) {
+      setFormError(
+        "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (e.g. 078XXXXXXX cyangwa 079XXXXXXX kuri MTN, 072XXXXXXX cyangwa 073XXXXXXX kuri Airtel matching regex ^07[89][0-9]{7}$)."
+      );
+      return;
+    }
+
     const phoneValidation = validateRwandaPhone(trimmedPhone);
     if (!phoneValidation.valid) {
       setFormError(phoneValidation.error || "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (Please enter a valid Rwanda mobile phone number e.g. 078XXXXXXX cyangwa 072XXXXXXX).");
       return;
     }
 
+    const normalizedPhoneNumber = phoneValidation.formatted || cleanPhoneInput;
+
     // Generate unique idempotency key for this submission attempt
-    const idempotencyKey = `idemp_${phoneValidation.formatted}_${finalAmount}_${Date.now()}`;
+    const idempotencyKey = `idemp_${normalizedPhoneNumber}_${finalAmount}_${Date.now()}`;
 
     setIsSubmitting(true);
     try {
       const res = await initiateDonation({
         donor_name: isAnonymous ? 'Umugiraneza (Anonymous)' : (donorName || 'Umugiraneza').trim(),
-        donor_phone: phoneValidation.formatted,
-        phone: phoneValidation.formatted,
-        phoneNumber: phoneValidation.formatted,
-        phone_number: phoneValidation.formatted,
-        donorPhone: phoneValidation.formatted,
-        customerPhone: phoneValidation.formatted,
-        payerPhone: phoneValidation.formatted,
-        number: phoneValidation.formatted,
+        donor_phone: normalizedPhoneNumber,
+        // Pass both 'phone' and 'phoneNumber' to support any backend contract expectations
+        phone: normalizedPhoneNumber,
+        phoneNumber: normalizedPhoneNumber,
+        phone_number: normalizedPhoneNumber,
+        donorPhone: normalizedPhoneNumber,
+        customerPhone: normalizedPhoneNumber,
+        payerPhone: normalizedPhoneNumber,
+        number: normalizedPhoneNumber,
         donor_email: donorEmail ? donorEmail.trim() : undefined,
         amount: finalAmount,
         provider_slug: provider,
@@ -461,9 +485,14 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
           {/* Donor Information */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-800 mb-1">
-                Your Phone Number / Nimero ya Telefone yawe <span className="text-rose-500">*</span>:
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-800">
+                  Your Phone Number / Nimero ya Telefone <span className="text-rose-500">*</span>:
+                </label>
+                <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+                  Regex: ^07[89][0-9]{7}$
+                </span>
+              </div>
               <div className="relative">
                 <Smartphone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
@@ -473,14 +502,35 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
                     setPhone(e.target.value);
                     if (formError) setFormError(null);
                   }}
-                  placeholder="urugero: 0788123456 cyangwa 0721234567"
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-mono text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-900"
+                  pattern="^(07[2389][0-9]{7}|\+?2507[2389][0-9]{7})$"
+                  placeholder="078xxxxxxx cyangwa 079xxxxxxx"
+                  className={`w-full pl-9 pr-9 py-2.5 bg-slate-50 border rounded-xl text-xs sm:text-sm font-mono text-slate-900 focus:bg-white focus:outline-none focus:ring-2 ${
+                    phone.trim().length > 0
+                      ? isPhoneRegexValid
+                        ? 'border-emerald-500 ring-1 ring-emerald-500/20 focus:ring-emerald-600'
+                        : 'border-amber-400 ring-1 ring-amber-400/20 focus:ring-amber-500'
+                      : 'border-slate-200 focus:ring-blue-900'
+                  }`}
                   required
                 />
+                {isPhoneRegexValid && (
+                  <Check className="w-4 h-4 text-emerald-600 absolute right-3 top-3" />
+                )}
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Enter the phone number you will use to authorize this payment (PIN prompt will be sent here).
-              </p>
+
+              {phone.trim().length > 0 && !isPhoneRegexValid ? (
+                <p className="text-[11px] text-amber-700 font-medium mt-1">
+                  Invalid Rwandan phone format. Please enter a 10-digit number matching <span className="font-mono font-bold">^07[89][0-9]&#123;7&#125;$</span> (e.g., 0788123456) or <span className="font-mono font-bold">^07[23][0-9]&#123;7&#125;$</span>.
+                </p>
+              ) : isPhoneRegexValid ? (
+                <p className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
+                  <span>✓ Valid Rwandan {isMtnPhone ? 'MTN' : isAirtelPhone ? 'Airtel' : ''} mobile number ({cleanPhoneInput})</span>
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Enter the phone number you will use to authorize this payment (PIN prompt will be sent here).
+                </p>
+              )}
             </div>
 
             <div>
@@ -550,7 +600,7 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
           {/* Submit Button with Idempotency Protection */}
           <button
             type="submit"
-            disabled={isSubmitting || isLoading || !finalAmount || !phone.trim()}
+            disabled={isSubmitting || isLoading || !finalAmount || !phone.trim() || !isPhoneRegexValid}
             className="w-full py-3.5 px-4 bg-gradient-to-r from-blue-950 via-slate-900 to-blue-900 hover:from-blue-900 hover:to-indigo-950 text-white rounded-2xl font-bold text-sm shadow-md transition-all active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
           >
             {isSubmitting || isLoading ? (
