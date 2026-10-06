@@ -9,18 +9,19 @@ export interface PhoneValidation {
   errorMessage?: string;
 }
 
-export function validateAndNormalizeRwandaPhone(input: string): PhoneValidation {
-  if (!input) {
+export function validateAndNormalizeRwandaPhone(input?: any): PhoneValidation {
+  const strInput = typeof input === 'string' ? input.trim() : (input ? String(input).trim() : '');
+  if (!strInput) {
     return {
       isValid: false,
       formatted12: '',
       formatted10: '',
       carrier: 'Unknown',
-      errorMessage: 'Nimero ya telefone irakenewe (Phone number is required)',
+      errorMessage: 'Nyamuneka shyiramo nimero ya telefone yo kwishyuriraho (Please enter the phone number you will use to make this payment).',
     };
   }
 
-  const clean = input.replace(/[\s\-\(\)\.]/g, '').replace(/^\+/, '');
+  const clean = strInput.replace(/[\s\-\(\)\.]/g, '').replace(/^\+/, '');
 
   let digits9 = '';
   if (clean.startsWith('250') && clean.length === 12) {
@@ -35,7 +36,7 @@ export function validateAndNormalizeRwandaPhone(input: string): PhoneValidation 
       formatted12: clean,
       formatted10: clean,
       carrier: 'Unknown',
-      errorMessage: 'Nimero ya telefone igomba kugira imibare 10 (urugero: 0788123456 cyangwa 073123456)',
+      errorMessage: "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (Please enter a valid Rwanda mobile phone number e.g. 078XXXXXXX cyangwa 072XXXXXXX)",
     };
   }
 
@@ -51,7 +52,7 @@ export function validateAndNormalizeRwandaPhone(input: string): PhoneValidation 
       formatted12: `250${digits9}`,
       formatted10: `0${digits9}`,
       carrier: 'Unknown',
-      errorMessage: 'Uru rusobe rwa telefone ntirwemewe. Hitamo MTN (078, 079) cyangwa Airtel (072, 073)',
+      errorMessage: "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (Please enter a valid Rwanda mobile phone number e.g. 078XXXXXXX cyangwa 072XXXXXXX)",
     };
   }
 
@@ -475,6 +476,35 @@ export class RwandaPaymentGatewayService {
       JSON.stringify(gatewayMetadata),
       idempotencyKey
     );
+
+    // Also mirror into donation_transactions table
+    try {
+      db.prepare(`
+        INSERT INTO donation_transactions (
+          id, reference, gateway_reference, amount, currency,
+          donor_name, donor_phone, donor_email, payment_method,
+          donation_purpose, status, is_anonymous, user_id,
+          gateway_metadata, idempotency_key, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'RWF', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(
+        transactionId,
+        internalReference,
+        providerReference,
+        params.amount,
+        params.donorName || (params.isAnonymous ? 'Umugiraneza (Anonymous)' : 'Worshipper'),
+        phoneValidation.formatted10,
+        params.donorEmail || null,
+        params.paymentMethod,
+        params.donationPurpose || 'La Lumiere Choir Donations',
+        initialStatus,
+        params.isAnonymous ? 1 : 0,
+        params.userId || null,
+        JSON.stringify(gatewayMetadata),
+        idempotencyKey
+      );
+    } catch {
+      // ignore if duplicate
+    }
 
     // Audit log
     db.prepare(`

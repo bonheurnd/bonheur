@@ -1,7 +1,7 @@
 import express, { Request, Response, Router } from 'express';
 import crypto from 'crypto';
 import Paypack from 'paypack-js';
-import { db } from './db.js';
+import { db, getMomoDonationSettings } from './db.js';
 import { optionalAuth, requireAdmin, AuthRequest } from './auth.js';
 
 // -------------------------------------------------------------
@@ -65,7 +65,8 @@ export function getPaypackClient(): Paypack | null {
     return null;
   }
   try {
-    const paypack = new Paypack({
+    const PaypackConstructor = (Paypack as any).default || Paypack;
+    const paypack = new PaypackConstructor({
       client_id: clientId,
       client_secret: clientSecret,
     });
@@ -79,24 +80,25 @@ export function getPaypackClient(): Paypack | null {
 // -------------------------------------------------------------
 // 4. PHONE VALIDATION & FORMATTING HELPER
 // -------------------------------------------------------------
-export function validateRwandaPhone(input: string): {
+export function validateRwandaPhone(input?: any): {
   isValid: boolean;
-  formatted10: string; // 078XXXXXXX
-  formatted12: string; // 25078XXXXXXX
+  formatted10: string; // 078XXXXXXX (Required format for Paypack API & SDK)
+  formatted12: string; // 25078XXXXXXX (International Rwanda format)
   carrier: 'MTN' | 'Airtel' | 'Unknown';
   errorMessage?: string;
 } {
-  if (!input) {
+  const strInput = typeof input === 'string' ? input.trim() : (input ? String(input).trim() : '');
+  if (!strInput) {
     return {
       isValid: false,
       formatted10: '',
       formatted12: '',
       carrier: 'Unknown',
-      errorMessage: 'Nimero ya telefone irakenewe (Phone number is required)',
+      errorMessage: 'Nyamuneka shyiramo nimero ya telefone yo kwishyuriraho (Please enter the phone number you will use to make this payment).',
     };
   }
 
-  const clean = input.replace(/[\s\-\(\)\.]/g, '').replace(/^\+/, '');
+  const clean = strInput.replace(/[\s\-\(\)\.]/g, '').replace(/^\+/, '');
   let digits9 = '';
 
   if (clean.startsWith('250') && clean.length === 12) {
@@ -111,7 +113,7 @@ export function validateRwandaPhone(input: string): {
       formatted10: clean,
       formatted12: clean,
       carrier: 'Unknown',
-      errorMessage: 'Nimero ya telefone igomba kugira imibare 10 (urugero: 0788123456)',
+      errorMessage: "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (Please enter a valid Rwanda mobile phone number e.g. 078XXXXXXX cyangwa 072XXXXXXX).",
     };
   }
 
@@ -127,7 +129,7 @@ export function validateRwandaPhone(input: string): {
       formatted10: `0${digits9}`,
       formatted12: `250${digits9}`,
       carrier: 'Unknown',
-      errorMessage: 'Uru rusobe rwa telefone ntirwemewe. Hitamo MTN (078, 079) cyangwa Airtel (072, 073)',
+      errorMessage: "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (Please enter a valid Rwanda mobile phone number e.g. 078XXXXXXX cyangwa 072XXXXXXX).",
     };
   }
 
@@ -230,14 +232,22 @@ paymentsRouter.post('/initiate', optionalAuth, async (req: AuthRequest, res: Res
     const {
       amount,
       phone,
-      number,
+      phoneNumber,
       phone_number,
+      donor_phone,
+      donorPhone,
+      customerPhone,
+      payerPhone,
+      number,
+      customer,
+      payer,
       donor_name,
       donorName,
       donor_email,
       donorEmail,
       payment_method,
       paymentMethod,
+      provider_slug,
       donation_purpose,
       donationPurpose,
       is_anonymous,
@@ -245,23 +255,65 @@ paymentsRouter.post('/initiate', optionalAuth, async (req: AuthRequest, res: Res
       idempotency_key,
     } = req.body;
 
-    const parsedAmount = Number(amount);
-    if (isNaN(parsedAmount) || parsedAmount < 100) {
-      return res.status(400).json({
-        error: 'Amafaranga ntashobora kuba munsi ya 100 RWF (Minimum donation is 100 RWF)',
+    // Check if donations are globally enabled by Admin
+    const recipientSettings = getMomoDonationSettings();
+    if (!recipientSettings.is_enabled) {
+      return res.status(403).json({
+        error: "Kwakira impano n'inkunga byahagaritswe by'agateganyo n'ubuyobozi (Online donations are temporarily paused).",
       });
     }
 
-    const rawPhone = phone || number || phone_number;
-    const phoneCheck = validateRwandaPhone(rawPhone);
+    // Amount validation against configured recipient limits
+    const minAmount = recipientSettings.min_amount || 100;
+    const maxAmount = recipientSettings.max_amount || 5000000;
+    const parsedAmount = Number(amount);
+
+    if (isNaN(parsedAmount) || parsedAmount < minAmount) {
+      return res.status(400).json({
+        error: `Amafaranga ntashobora kuba munsi ya ${minAmount.toLocaleString()} RWF (Minimum donation is ${minAmount.toLocaleString()} RWF)`,
+      });
+    }
+
+    if (parsedAmount > maxAmount) {
+      return res.status(400).json({
+        error: `Amafaranga ntashobora kurenga ${maxAmount.toLocaleString()} RWF (Maximum donation is ${maxAmount.toLocaleString()} RWF)`,
+      });
+    }
+
+    // Resolve donor / payer phone number from all standard frontend and gateway field aliases
+    const rawDonorPhone =
+      phone ||
+      phoneNumber ||
+      phone_number ||
+      donor_phone ||
+      donorPhone ||
+      customerPhone ||
+      payerPhone ||
+      customer?.phone ||
+      payer?.phone ||
+      number;
+
+    const trimmedPhone = typeof rawDonorPhone === 'string' ? rawDonorPhone.trim() : (rawDonorPhone ? String(rawDonorPhone).trim() : '');
+
+    // 1. Missing phone validation before calling gateway
+    if (!trimmedPhone) {
+      return res.status(400).json({
+        error: 'Nyamuneka shyiramo nimero ya telefone yo kwishyuriraho (Please enter the phone number you will use to make this payment).',
+      });
+    }
+
+    // 2. Rwanda phone normalization & carrier check
+    const phoneCheck = validateRwandaPhone(trimmedPhone);
     if (!phoneCheck.isValid) {
-      return res.status(400).json({ error: phoneCheck.errorMessage || 'Invalid phone number' });
+      return res.status(400).json({
+        error: phoneCheck.errorMessage || "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (Please enter a valid Rwanda mobile phone number).",
+      });
     }
 
     const name = donor_name || donorName || req.user?.name || 'Umugiraneza';
     const email = donor_email || donorEmail || req.user?.email || null;
-    const method = payment_method || paymentMethod || (phoneCheck.carrier === 'Airtel' ? 'airtel-money' : 'mtn-momo');
-    const purpose = donation_purpose || donationPurpose || 'La Lumiere Choir Donations';
+    const method = provider_slug || payment_method || paymentMethod || (phoneCheck.carrier === 'Airtel' ? 'airtel-money' : 'mtn-momo');
+    const purpose = donation_purpose || donationPurpose || recipientSettings.purpose || 'La Lumiere Choir Donations';
     const anonymous = Boolean(is_anonymous !== undefined ? is_anonymous : isAnonymous);
 
     // Idempotency check: prevent duplicate requests if user presses button multiple times
@@ -294,6 +346,8 @@ paymentsRouter.post('/initiate', optionalAuth, async (req: AuthRequest, res: Res
       provider: 'paypack',
       carrier: phoneCheck.carrier,
       environment: isLive ? 'production' : environment,
+      recipient_phone: recipientSettings.phone_number,
+      recipient_name: recipientSettings.recipient_name,
     };
     let status = 'pending';
 
@@ -301,6 +355,7 @@ paymentsRouter.post('/initiate', optionalAuth, async (req: AuthRequest, res: Res
 
     if (paypack && (clientId && clientSecret)) {
       // Execute payment using official Paypack SDK cashin
+      // Paypack requires 10-digit phone format ("078XXXXXXX") and amount
       try {
         const cashinResult = await paypack.cashin({
           number: phoneCheck.formatted10,
@@ -322,7 +377,7 @@ paymentsRouter.post('/initiate', optionalAuth, async (req: AuthRequest, res: Res
     } else {
       if (isLive) {
         return res.status(400).json({
-          error: 'Gateway ya Paypack ntirashyirwamo ibyangombwa bya LIVE muri server (PAYPACK_CLIENT_ID & PAYPACK_CLIENT_SECRET).',
+          error: "Gateway ya Paypack ntirashyirwamo ibyangombwa bya LIVE muri server (PAYPACK_CLIENT_ID & PAYPACK_CLIENT_SECRET).",
         });
       }
       // Sandbox mode without credentials
@@ -586,6 +641,13 @@ paymentsRouter.get('/status/:reference', async (req: Request, res: Response) => 
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to verify transaction status' });
   }
+});
+
+/**
+ * GET /api/payments/verify/:reference (Alias for /status/:reference)
+ */
+paymentsRouter.get('/verify/:reference', (req: Request, res: Response) => {
+  res.redirect(307, `/api/payments/status/${req.params.reference}`);
 });
 
 /**

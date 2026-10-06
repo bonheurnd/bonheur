@@ -2071,7 +2071,13 @@ app.post('/api/donations/initiate', optionalAuth, async (req: AuthRequest, res) 
     const {
       amount,
       phone,
+      phoneNumber: rawPhoneNumber,
       phone_number,
+      donor_phone,
+      donorPhone,
+      customerPhone,
+      payerPhone,
+      number,
       paymentMethod,
       provider_slug,
       donationPurpose,
@@ -2093,8 +2099,36 @@ app.post('/api/donations/initiate', optionalAuth, async (req: AuthRequest, res) 
       });
     }
 
-    const phoneNumber = phone || phone_number;
-    const provider = provider_slug || paymentMethod || 'mtn-momo';
+    const rawDonorPhone =
+      phone ||
+      rawPhoneNumber ||
+      phone_number ||
+      donor_phone ||
+      donorPhone ||
+      customerPhone ||
+      payerPhone ||
+      req.body.customer?.phone ||
+      req.body.payer?.phone ||
+      number;
+
+    const phoneNumber = typeof rawDonorPhone === 'string' ? rawDonorPhone.trim() : (rawDonorPhone ? String(rawDonorPhone).trim() : '');
+
+    // 1. Missing phone validation
+    if (!phoneNumber) {
+      return res.status(400).json({
+        error: 'Nyamuneka shyiramo nimero ya telefone yo kwishyuriraho (Please enter the phone number you will use to make this payment).',
+      });
+    }
+
+    // 2. Rwanda phone format & carrier validation
+    const phoneCheck = validateAndNormalizeRwandaPhone(phoneNumber);
+    if (!phoneCheck.isValid) {
+      return res.status(400).json({
+        error: phoneCheck.errorMessage || "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (Please enter a valid Rwanda mobile phone number).",
+      });
+    }
+
+    const provider = provider_slug || paymentMethod || (phoneCheck.carrier === 'Airtel' ? 'airtel-money' : 'mtn-momo');
     const purpose = donationPurpose || donation_purpose || currentSettings.purpose;
     const name = donorName || donor_name || req.user?.name || 'Umugiraneza';
     const email = donorEmail || donor_email || req.user?.email || null;
@@ -2103,20 +2137,20 @@ app.post('/api/donations/initiate', optionalAuth, async (req: AuthRequest, res) 
 
     if (isNaN(parsedAmount) || parsedAmount < (currentSettings.min_amount || 100)) {
       return res.status(400).json({
-        error: `Amafaranga ntashobora kuba munsi ya ${(currentSettings.min_amount || 100).toLocaleString()} RWF`,
+        error: `Amafaranga ntashobora kuba munsi ya ${(currentSettings.min_amount || 100).toLocaleString()} RWF (Minimum donation is ${(currentSettings.min_amount || 100).toLocaleString()} RWF)`,
       });
     }
 
     if (parsedAmount > (currentSettings.max_amount || 5000000)) {
       return res.status(400).json({
-        error: `Amafaranga ntashobora kurenga ${(currentSettings.max_amount || 5000000).toLocaleString()} RWF`,
+        error: `Amafaranga ntashobora kurenga ${(currentSettings.max_amount || 5000000).toLocaleString()} RWF (Maximum donation is ${(currentSettings.max_amount || 5000000).toLocaleString()} RWF)`,
       });
     }
 
     const response = await RwandaPaymentGatewayService.initiatePayment({
       userId: req.user?.id,
       donorName: name,
-      phone: phoneNumber,
+      phone: phoneCheck.formatted10,
       donorEmail: email,
       amount: parsedAmount,
       paymentMethod: provider === 'airtel-money' ? 'airtel-money' : 'mtn-momo',

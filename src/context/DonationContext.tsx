@@ -4,12 +4,23 @@ import { useAuth } from './AuthContext';
 
 export interface InitiateDonationParams {
   donor_name: string;
-  donor_phone: string;
+  donor_phone?: string;
+  phone?: string;
+  phoneNumber?: string;
+  phone_number?: string;
+  donorPhone?: string;
+  customerPhone?: string;
+  payerPhone?: string;
+  number?: string;
   donor_email?: string;
+  donorEmail?: string;
   amount: number;
   provider_slug: 'mtn-momo' | 'airtel-money' | string;
+  paymentMethod?: 'mtn-momo' | 'airtel-money' | string;
   donation_purpose?: string;
+  donationPurpose?: string;
   is_anonymous?: boolean;
+  isAnonymous?: boolean;
   idempotency_key?: string;
 }
 
@@ -155,10 +166,16 @@ export const DonationProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   // Validate Rwanda phone number
   const validateRwandaPhone = useCallback((phone: string): PhoneValidationResult => {
-    if (!phone) {
-      return { valid: false, provider: null, formatted: '', error: 'Nimero ya telefone irakenewe' };
+    const cleanPhone = typeof phone === 'string' ? phone.trim() : (phone ? String(phone).trim() : '');
+    if (!cleanPhone) {
+      return {
+        valid: false,
+        provider: null,
+        formatted: '',
+        error: 'Nyamuneka shyiramo nimero ya telefone yo kwishyuriraho (Please enter the phone number you will use to make this payment).',
+      };
     }
-    const clean = phone.replace(/[\s\-\(\)\.]/g, '').replace(/^\+/, '');
+    const clean = cleanPhone.replace(/[\s\-\(\)\.]/g, '').replace(/^\+/, '');
     let digits9 = '';
     if (clean.startsWith('250') && clean.length === 12) {
       digits9 = clean.substring(3);
@@ -170,8 +187,8 @@ export const DonationProvider: React.FC<{ children: ReactNode }> = ({ children }
       return {
         valid: false,
         provider: null,
-        formatted: phone,
-        error: "Nimero igomba kuba igizwe n'imibare 10 (urugero: 078XXXXXXX cyangwa 072XXXXXXX)",
+        formatted: cleanPhone,
+        error: "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (Please enter a valid Rwanda mobile phone number e.g. 078XXXXXXX cyangwa 072XXXXXXX).",
       };
     }
 
@@ -186,7 +203,7 @@ export const DonationProvider: React.FC<{ children: ReactNode }> = ({ children }
         valid: false,
         provider: null,
         formatted: `0${digits9}`,
-        error: 'Nimero igomba kuba iya MTN (078, 079) cyangwa Airtel (072, 073)',
+        error: "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (Please enter a valid Rwanda mobile phone number e.g. 078XXXXXXX cyangwa 072XXXXXXX).",
       };
     }
 
@@ -283,6 +300,24 @@ export const DonationProvider: React.FC<{ children: ReactNode }> = ({ children }
       setIsLoading(true);
       setError(null);
       try {
+        const donorPhone = (
+          params.donor_phone ||
+          params.phone ||
+          params.phoneNumber ||
+          params.phone_number ||
+          params.donorPhone ||
+          params.customerPhone ||
+          params.payerPhone ||
+          params.number ||
+          ''
+        ).trim();
+
+        if (!donorPhone) {
+          const msg = 'Nyamuneka shyiramo nimero ya telefone yo kwishyuriraho (Please enter the phone number you will use to make this payment).';
+          setError(msg);
+          return { success: false, error: msg };
+        }
+
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
           ...getAuthHeaders(),
@@ -292,13 +327,25 @@ export const DonationProvider: React.FC<{ children: ReactNode }> = ({ children }
           method: 'POST',
           headers,
           body: JSON.stringify({
-            donor_name: params.donor_name.trim(),
-            donor_phone: params.donor_phone.trim(),
-            donor_email: params.donor_email ? params.donor_email.trim() : null,
+            phone: donorPhone,
+            phoneNumber: donorPhone,
+            phone_number: donorPhone,
+            donor_phone: donorPhone,
+            donorPhone: donorPhone,
+            customerPhone: donorPhone,
+            payerPhone: donorPhone,
+            number: donorPhone,
+            donor_name: (params.donor_name || 'Umugiraneza').trim(),
+            donorName: (params.donor_name || 'Umugiraneza').trim(),
+            donor_email: params.donor_email ? params.donor_email.trim() : (params.donorEmail ? params.donorEmail.trim() : null),
+            donorEmail: params.donor_email ? params.donor_email.trim() : (params.donorEmail ? params.donorEmail.trim() : null),
             amount: Number(params.amount),
-            provider_slug: params.provider_slug,
-            donation_purpose: params.donation_purpose || recipientSettings.donation_purpose,
-            is_anonymous: Boolean(params.is_anonymous),
+            provider_slug: params.provider_slug || params.paymentMethod || 'mtn-momo',
+            paymentMethod: params.provider_slug || params.paymentMethod || 'mtn-momo',
+            donation_purpose: params.donation_purpose || params.donationPurpose || recipientSettings.donation_purpose,
+            donationPurpose: params.donation_purpose || params.donationPurpose || recipientSettings.donation_purpose,
+            is_anonymous: Boolean(params.is_anonymous !== undefined ? params.is_anonymous : params.isAnonymous),
+            isAnonymous: Boolean(params.is_anonymous !== undefined ? params.is_anonymous : params.isAnonymous),
             idempotency_key: params.idempotency_key,
           }),
         });
@@ -314,15 +361,15 @@ export const DonationProvider: React.FC<{ children: ReactNode }> = ({ children }
         const transaction: PaymentTransaction = data.transaction || {
           id: data.reference || `momo_${Date.now()}`,
           internal_reference: data.reference || `DON-2026-${Date.now()}`,
-          donor_name: params.donor_name,
-          donor_phone: params.donor_phone,
-          donor_email: params.donor_email,
+          donor_name: (params.donor_name || 'Umugiraneza').trim(),
+          donor_phone: donorPhone,
+          donor_email: params.donor_email || params.donorEmail,
           amount: params.amount,
           currency: 'RWF',
-          provider_slug: params.provider_slug,
-          donation_purpose: params.donation_purpose || recipientSettings.donation_purpose,
+          provider_slug: params.provider_slug || params.paymentMethod || 'mtn-momo',
+          donation_purpose: params.donation_purpose || params.donationPurpose || recipientSettings.donation_purpose,
           status: 'pending',
-          is_anonymous: Boolean(params.is_anonymous),
+          is_anonymous: Boolean(params.is_anonymous !== undefined ? params.is_anonymous : params.isAnonymous),
           created_at: new Date().toISOString(),
         };
 

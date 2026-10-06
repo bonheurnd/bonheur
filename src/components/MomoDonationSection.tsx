@@ -131,9 +131,15 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
       return;
     }
 
-    const phoneValidation = validateRwandaPhone(phone);
+    const trimmedPhone = phone.trim();
+    if (!trimmedPhone) {
+      setFormError('Nyamuneka shyiramo nimero ya telefone yo kwishyuriraho (Please enter the phone number you will use to make this payment).');
+      return;
+    }
+
+    const phoneValidation = validateRwandaPhone(trimmedPhone);
     if (!phoneValidation.valid) {
-      setFormError(phoneValidation.error || 'Nimero ya telefone yanditse nabi');
+      setFormError(phoneValidation.error || "Nyamuneka shyiramo nimero ya telefone y'u Rwanda yemewe (Please enter a valid Rwanda mobile phone number e.g. 078XXXXXXX cyangwa 072XXXXXXX).");
       return;
     }
 
@@ -143,11 +149,19 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
     setIsSubmitting(true);
     try {
       const res = await initiateDonation({
-        donor_name: isAnonymous ? 'Umugiraneza (Anonymous)' : donorName || 'Umugiraneza',
+        donor_name: isAnonymous ? 'Umugiraneza (Anonymous)' : (donorName || 'Umugiraneza').trim(),
         donor_phone: phoneValidation.formatted,
-        donor_email: donorEmail || undefined,
+        phone: phoneValidation.formatted,
+        phoneNumber: phoneValidation.formatted,
+        phone_number: phoneValidation.formatted,
+        donorPhone: phoneValidation.formatted,
+        customerPhone: phoneValidation.formatted,
+        payerPhone: phoneValidation.formatted,
+        number: phoneValidation.formatted,
+        donor_email: donorEmail ? donorEmail.trim() : undefined,
         amount: finalAmount,
         provider_slug: provider,
+        paymentMethod: provider,
         donation_purpose: purpose || recipientSettings.donation_purpose,
         is_anonymous: isAnonymous,
         idempotency_key: idempotencyKey,
@@ -448,19 +462,25 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-800 mb-1">
-                Nimero ya Telefone yawe (MoMo Phone):
+                Your Phone Number / Nimero ya Telefone yawe <span className="text-rose-500">*</span>:
               </label>
               <div className="relative">
                 <Smartphone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="tel"
                   value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="078XXXXXXX cyangwa 072XXXXXXX"
+                  onChange={e => {
+                    setPhone(e.target.value);
+                    if (formError) setFormError(null);
+                  }}
+                  placeholder="urugero: 0788123456 cyangwa 0721234567"
                   className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-mono text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-900"
                   required
                 />
               </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Enter the phone number you will use to authorize this payment (PIN prompt will be sent here).
+              </p>
             </div>
 
             <div>
@@ -530,7 +550,7 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
           {/* Submit Button with Idempotency Protection */}
           <button
             type="submit"
-            disabled={isSubmitting || isLoading || !finalAmount}
+            disabled={isSubmitting || isLoading || !finalAmount || !phone.trim()}
             className="w-full py-3.5 px-4 bg-gradient-to-r from-blue-950 via-slate-900 to-blue-900 hover:from-blue-900 hover:to-indigo-950 text-white rounded-2xl font-bold text-sm shadow-md transition-all active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
           >
             {isSubmitting || isLoading ? (
