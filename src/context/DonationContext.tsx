@@ -323,31 +323,33 @@ export const DonationProvider: React.FC<{ children: ReactNode }> = ({ children }
           ...getAuthHeaders(),
         };
 
-        const res = await fetch('/api/donations/initiate', {
+        const payload = {
+          phone: donorPhone,
+          phoneNumber: donorPhone,
+          customerPhone: donorPhone,
+          donor_phone: donorPhone,
+          donorPhone: donorPhone,
+          phone_number: donorPhone,
+          payerPhone: donorPhone,
+          number: donorPhone,
+          donor_name: (params.donor_name || 'Umugiraneza').trim(),
+          donorName: (params.donor_name || 'Umugiraneza').trim(),
+          donor_email: params.donor_email ? params.donor_email.trim() : (params.donorEmail ? params.donorEmail.trim() : null),
+          donorEmail: params.donor_email ? params.donor_email.trim() : (params.donorEmail ? params.donorEmail.trim() : null),
+          amount: Number(params.amount),
+          provider_slug: params.provider_slug || params.paymentMethod || 'mtn-momo',
+          paymentMethod: params.provider_slug || params.paymentMethod || 'mtn-momo',
+          donation_purpose: params.donation_purpose || params.donationPurpose || recipientSettings.donation_purpose,
+          donationPurpose: params.donation_purpose || params.donationPurpose || recipientSettings.donation_purpose,
+          is_anonymous: Boolean(params.is_anonymous !== undefined ? params.is_anonymous : params.isAnonymous),
+          isAnonymous: Boolean(params.is_anonymous !== undefined ? params.is_anonymous : params.isAnonymous),
+          idempotency_key: params.idempotency_key,
+        };
+
+        const res = await fetch('/api/payments', {
           method: 'POST',
           headers,
-          body: JSON.stringify({
-            phone: donorPhone,
-            phoneNumber: donorPhone,
-            phone_number: donorPhone,
-            donor_phone: donorPhone,
-            donorPhone: donorPhone,
-            customerPhone: donorPhone,
-            payerPhone: donorPhone,
-            number: donorPhone,
-            donor_name: (params.donor_name || 'Umugiraneza').trim(),
-            donorName: (params.donor_name || 'Umugiraneza').trim(),
-            donor_email: params.donor_email ? params.donor_email.trim() : (params.donorEmail ? params.donorEmail.trim() : null),
-            donorEmail: params.donor_email ? params.donor_email.trim() : (params.donorEmail ? params.donorEmail.trim() : null),
-            amount: Number(params.amount),
-            provider_slug: params.provider_slug || params.paymentMethod || 'mtn-momo',
-            paymentMethod: params.provider_slug || params.paymentMethod || 'mtn-momo',
-            donation_purpose: params.donation_purpose || params.donationPurpose || recipientSettings.donation_purpose,
-            donationPurpose: params.donation_purpose || params.donationPurpose || recipientSettings.donation_purpose,
-            is_anonymous: Boolean(params.is_anonymous !== undefined ? params.is_anonymous : params.isAnonymous),
-            isAnonymous: Boolean(params.is_anonymous !== undefined ? params.is_anonymous : params.isAnonymous),
-            idempotency_key: params.idempotency_key,
-          }),
+          body: JSON.stringify(payload),
         });
 
         const data = await res.json();

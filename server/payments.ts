@@ -224,10 +224,9 @@ paymentsRouter.get('/config', (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/payments/initiate
- * Initializes a real payment request using the Paypack SDK
+ * Payment initiation handler using the Paypack SDK & SQLite donation_transactions schema
  */
-paymentsRouter.post('/initiate', optionalAuth, async (req: AuthRequest, res: Response) => {
+const handlePaymentInitiate = async (req: AuthRequest, res: Response) => {
   try {
     const {
       amount,
@@ -453,10 +452,14 @@ paymentsRouter.post('/initiate', optionalAuth, async (req: AuthRequest, res: Res
       gateway_status: status,
     });
   } catch (err: any) {
-    console.error('[API /api/payments/initiate error]:', err.message);
+    console.error('[API /api/payments error]:', err.message);
     res.status(500).json({ error: err.message || 'Failed to initiate payment' });
   }
-});
+};
+
+// Route handlers for POST /api/payments/initiate and POST /api/payments
+paymentsRouter.post('/initiate', optionalAuth, handlePaymentInitiate);
+paymentsRouter.post('/', optionalAuth, handlePaymentInitiate);
 
 /**
  * POST /api/payments/webhook
