@@ -174,6 +174,23 @@ export function verifyPaypackWebhookSignature(
   return crypto.timingSafeEqual(sigBuffer, expBuffer);
 }
 
+/**
+ * Express middleware to validate Paypack webhook signatures
+ */
+export function paypackWebhookSignatureMiddleware(req: Request, res: Response, next: express.NextFunction) {
+  const { webhookSecret } = getCredentials();
+  if (webhookSecret) {
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+    const signature = req.headers['x-paypack-signature'];
+    const isValid = verifyPaypackWebhookSignature(rawBody, signature);
+    if (!isValid) {
+      console.warn('[Paypack Webhook] Rejected: Invalid webhook signature');
+      return res.status(401).json({ error: 'Invalid webhook signature' });
+    }
+  }
+  next();
+}
+
 // -------------------------------------------------------------
 // 6. EXPRESS ROUTER FOR PAYMENTS & WEBHOOKS
 // -------------------------------------------------------------
@@ -390,21 +407,8 @@ paymentsRouter.post('/initiate', optionalAuth, async (req: AuthRequest, res: Res
  * POST /api/payments/webhook
  * Validates incoming webhook signature and updates transaction status
  */
-paymentsRouter.post('/webhook', (req: Request, res: Response) => {
+paymentsRouter.post('/webhook', paypackWebhookSignatureMiddleware, (req: Request, res: Response) => {
   try {
-    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
-    const signature = req.headers['x-paypack-signature'];
-    const { webhookSecret } = getCredentials();
-
-    // Verify webhook signature if secret is configured
-    if (webhookSecret) {
-      const isValid = verifyPaypackWebhookSignature(rawBody, signature);
-      if (!isValid) {
-        console.warn('[Paypack Webhook] Rejected: Invalid webhook signature');
-        return res.status(401).json({ error: 'Invalid webhook signature' });
-      }
-    }
-
     const payload = req.body || {};
     const eventData = payload.data || payload;
     const ref = eventData.ref || eventData.reference || payload.ref;
