@@ -46,6 +46,7 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
     recipientSettings,
     gatewaySummary,
     initiateDonation,
+    initiatePayment,
     checkDonationStatus,
     validateRwandaPhone,
     isLoading,
@@ -171,10 +172,9 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
 
     setIsSubmitting(true);
     try {
-      const res = await initiateDonation({
+      const paymentParams = {
         donor_name: isAnonymous ? 'Umugiraneza (Anonymous)' : (donorName || 'Umugiraneza').trim(),
         donor_phone: normalizedPhoneNumber,
-        // Pass both 'phone' and 'phoneNumber' to support any backend contract expectations
         phone: normalizedPhoneNumber,
         phoneNumber: normalizedPhoneNumber,
         phone_number: normalizedPhoneNumber,
@@ -189,7 +189,12 @@ export const MomoDonationSection: React.FC<MomoDonationSectionProps> = ({
         donation_purpose: purpose || recipientSettings.donation_purpose,
         is_anonymous: isAnonymous,
         idempotency_key: idempotencyKey,
-      });
+      };
+
+      console.log('Sending Payment Request:', paymentParams);
+      console.log(paymentParams);
+
+      const res = await (initiatePayment || initiateDonation)(paymentParams);
 
       if (!res.success) {
         setFormError(res.error || 'Ntibyashoboye gutangiza inkunga. Ongera ugerageze.');

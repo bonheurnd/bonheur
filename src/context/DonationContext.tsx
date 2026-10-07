@@ -50,6 +50,7 @@ export interface DonationContextType {
   isLoading: boolean;
   error: string | null;
   initiateDonation: (params: InitiateDonationParams) => Promise<InitiateDonationResult>;
+  initiatePayment: (params: InitiateDonationParams) => Promise<InitiateDonationResult>;
   checkDonationStatus: (reference: string) => Promise<PaymentTransaction | null>;
   fetchUserDonationHistory: () => Promise<PaymentTransaction[]>;
   fetchAdminDonations: (filters?: Record<string, string>) => Promise<PaymentTransaction[]>;
@@ -346,6 +347,10 @@ export const DonationProvider: React.FC<{ children: ReactNode }> = ({ children }
           idempotency_key: params.idempotency_key,
         };
 
+        // Explicit console logs to inspect exact payload and keys in browser developer tools
+        console.log('Sending Payment Request:', payload);
+        console.log(payload);
+
         const res = await fetch('/api/payments', {
           method: 'POST',
           headers,
@@ -442,6 +447,7 @@ export const DonationProvider: React.FC<{ children: ReactNode }> = ({ children }
     isLoading,
     error,
     initiateDonation,
+    initiatePayment: initiateDonation,
     checkDonationStatus,
     fetchUserDonationHistory,
     fetchAdminDonations,
@@ -467,6 +473,10 @@ export const useDonation = (): DonationContextType => {
       isLoading: false,
       error: null,
       initiateDonation: async () => ({
+        success: false,
+        error: 'DonationProvider is not mounted',
+      }),
+      initiatePayment: async () => ({
         success: false,
         error: 'DonationProvider is not mounted',
       }),
