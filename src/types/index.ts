@@ -93,6 +93,7 @@ export interface Song {
   composer?: string;
   category_id?: string;
   category_name?: string;
+  category_slug?: string;
   release_status: 'released' | 'unreleased';
   status?: 'draft' | 'published';
   is_deleted?: number;

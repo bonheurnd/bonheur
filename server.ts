@@ -3096,6 +3096,7 @@ app.put('/api/admin/songs/:id', requireAdmin, (req: AuthRequest, res) => {
 
     const finalCategoryId = category_id !== undefined ? resolveCategoryId(category_id) : undefined;
     const parsedNum = parseInt(song_number, 10);
+    const orderNum = !isNaN(parsedNum) ? parsedNum : 0;
 
     let pwdUpdateClause = '';
     const params: any[] = [
@@ -3108,7 +3109,8 @@ app.put('/api/admin/songs/:id', requireAdmin, (req: AuthRequest, res) => {
       description || '',
       cover_image_url || '',
       status || 'published',
-      !isNaN(parsedNum) ? parsedNum : 0
+      orderNum,
+      orderNum
     ];
 
     if (access_password !== undefined) {
@@ -3130,7 +3132,7 @@ app.put('/api/admin/songs/:id', requireAdmin, (req: AuthRequest, res) => {
           display_order = CASE WHEN ? > 0 THEN ? ELSE display_order END,
           updated_at = CURRENT_TIMESTAMP ${pwdUpdateClause}
       WHERE id = ?
-    `).run(...params, !isNaN(parsedNum) ? parsedNum : 0);
+    `).run(...params);
 
     // Update lyrics
     if (lyrics !== undefined || solfa_notation !== undefined) {

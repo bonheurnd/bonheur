@@ -39,13 +39,16 @@ export const db: DbWrapper = {
     const stmt = rawDbInstance.prepare(sql);
     return {
       all(...args: any[]) {
-        return stmt.all(...args);
+        const cleanArgs = args.map(a => (a === undefined ? null : a));
+        return stmt.all(...cleanArgs);
       },
       get(...args: any[]) {
-        return stmt.get(...args);
+        const cleanArgs = args.map(a => (a === undefined ? null : a));
+        return stmt.get(...cleanArgs);
       },
       run(...args: any[]) {
-        return stmt.run(...args);
+        const cleanArgs = args.map(a => (a === undefined ? null : a));
+        return stmt.run(...cleanArgs);
       }
     };
   }
@@ -1031,8 +1034,8 @@ function seedOfficialSongs() {
   const countRow = db.prepare('SELECT COUNT(*) as count FROM songs').get() as { count: number };
   const hasLegacyPlaceholder = db.prepare("SELECT 1 FROM songs WHERE id = 'song_1' AND title LIKE '%The Love of Jesus%'").get();
 
-  if (countRow.count !== 92 || hasLegacyPlaceholder) {
-    console.log('[Songbook] Importing official 92 songs from LA_LUMIERE_CHORALE_SONGS_APP_READY.json...');
+  if (countRow.count === 0 || hasLegacyPlaceholder) {
+    console.log('[Songbook] Importing official songs from LA_LUMIERE_CHORALE_SONGS_APP_READY.json...');
 
     // Clear previous songs and associated tables
     db.prepare('DELETE FROM lyrics').run();

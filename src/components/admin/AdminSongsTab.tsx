@@ -449,9 +449,14 @@ export const AdminSongsTab: React.FC<AdminSongsTabProps> = ({
       <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-xs space-y-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+              <span>Admin Panel</span>
+              <span>→</span>
+              <span className="text-blue-900 font-extrabold">Song Management</span>
+            </div>
             <h2 className="text-base font-black text-slate-900 font-serif flex items-center gap-2">
               <Music className="w-5 h-5 text-blue-900" />
-              <span>Gucunga Indirimbo (Song Management)</span>
+              <span>Song Management (Gucunga Indirimbo)</span>
             </h2>
             <p className="text-xs text-slate-500">
               Uburyo busesuye bwo kwinjiza, guhindura, no gukwirakwiza indirimbo za Korali La Lumiere

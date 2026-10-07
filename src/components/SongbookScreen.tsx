@@ -120,7 +120,7 @@ export const SongbookScreen: React.FC<SongbookScreenProps> = ({
   };
 
   const totalAvailableCount = useMemo(() => {
-    return categories.reduce((sum, c) => sum + (c.song_count || 0), 0) || songs.length || 92;
+    return categories.reduce((sum, c) => sum + (c.song_count || 0), 0) || songs.length || 106;
   }, [categories, songs]);
 
   const handleDownloadAllSongs = async () => {

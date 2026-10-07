@@ -290,7 +290,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {[
           { id: 'overview', label: 'Incamake', icon: Shield },
           { id: 'events', label: 'Ibikorwa (Events)', icon: Calendar },
-          { id: 'songs', label: 'Indirimbo', icon: BookOpen },
+          { id: 'songs', label: 'Song Management', icon: BookOpen },
           { id: 'media', label: 'Amajwi & Amafoto', icon: Volume2 },
           { id: 'content', label: 'Ibirimo & Amatangazo', icon: FileText },
           { id: 'contacts', label: 'Kuvugisha Ubuyobozi', icon: PhoneCall },
