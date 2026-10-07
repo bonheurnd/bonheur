@@ -119,10 +119,14 @@ export const SongbookScreen: React.FC<SongbookScreenProps> = ({
     }
   };
 
+  const totalAvailableCount = useMemo(() => {
+    return categories.reduce((sum, c) => sum + (c.song_count || 0), 0) || songs.length || 92;
+  }, [categories, songs]);
+
   const handleDownloadAllSongs = async () => {
     if (isDownloadingAll) return;
     setIsDownloadingAll(true);
-    setDownloadProgress({ current: 0, total: 92, title: 'Gutangira...' });
+    setDownloadProgress({ current: 0, total: totalAvailableCount, title: 'Gutangira...' });
 
     try {
       const count = await downloadAllSongsForOffline((curr, total, title) => {
@@ -233,24 +237,24 @@ export const SongbookScreen: React.FC<SongbookScreenProps> = ({
             Igitabo cy'Indirimbo (Songbook)
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Indirimbo zose 92 za Korali La Lumiere zateguwe mu byiciro 4
+            Indirimbo za Korali La Lumiere zateguwe mu byiciro 4 (AGAKIZA, IJURU, GUSHIMA, KWIZERA)
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Download All 92 Songs for 100% Offline Access */}
+          {/* Download All Songs for 100% Offline Access */}
           <button
             onClick={handleDownloadAllSongs}
             disabled={isDownloadingAll}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-2xs ${
-              offlineSongIds.size >= 90
+              offlineSongIds.size >= totalAvailableCount
                 ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                 : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
             }`}
-            title="Bika indirimbo zose 92 offline ngo ujye uzisoma nta interineti"
+            title="Bika indirimbo zose offline ngo ujye uzisoma nta interineti"
           >
             {isDownloadingAll ? (
               <RefreshCw className="w-3.5 h-3.5 text-blue-900 animate-spin" />
-            ) : offlineSongIds.size >= 90 ? (
+            ) : offlineSongIds.size >= totalAvailableCount ? (
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
             ) : (
               <Download className="w-3.5 h-3.5 text-slate-600" />
@@ -258,12 +262,12 @@ export const SongbookScreen: React.FC<SongbookScreenProps> = ({
             <span className="hidden sm:inline">
               {isDownloadingAll
                 ? 'Kubika...'
-                : offlineSongIds.size >= 90
-                ? '92 Zabitswe Offline'
-                : `Bika Zose Offline (${offlineSongIds.size}/92)`}
+                : offlineSongIds.size >= totalAvailableCount
+                ? `${totalAvailableCount} Zabitswe Offline`
+                : `Bika Zose Offline (${offlineSongIds.size}/${totalAvailableCount})`}
             </span>
             <span className="sm:hidden text-[10px]">
-              {offlineSongIds.size >= 90 ? 'Offline (92)' : 'Bika Zose'}
+              {offlineSongIds.size >= totalAvailableCount ? `Offline (${totalAvailableCount})` : 'Bika Zose'}
             </span>
           </button>
 
@@ -344,7 +348,7 @@ export const SongbookScreen: React.FC<SongbookScreenProps> = ({
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
             }`}
           >
-            Zose (92)
+            Zose ({totalAvailableCount})
           </button>
 
           {categories.map((cat, idx) => {
@@ -419,7 +423,7 @@ export const SongbookScreen: React.FC<SongbookScreenProps> = ({
             onClick={() => handleSelectCategory('all')}
             className="text-xs text-amber-300 hover:text-amber-200 font-bold shrink-0 underline"
           >
-            Reba zose (All 92)
+            Reba zose (All {totalAvailableCount})
           </button>
         </div>
       )}

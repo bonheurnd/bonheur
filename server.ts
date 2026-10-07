@@ -38,6 +38,8 @@ import { initiateRwandaPayment, verifyPaymentTransaction, validateRwandaPhoneNum
 import { RwandaPaymentGatewayService, validateAndNormalizeRwandaPhone } from './server/rwandaPaymentGateway.js';
 import { paymentsRouter } from './server/payments.js';
 import { sendPasswordResetEmail, isEmailServiceConfigured, getEmailConfig } from './server/email.js';
+// @ts-ignore
+import mammoth from 'mammoth';
 
 // Initialize DB schema & seeds
 initDatabase();
@@ -2635,6 +2637,294 @@ app.get('/api/admin/search', requireAdmin, (req: AuthRequest, res) => {
 // -------------------------------------------------------------
 // ADMIN SONGS MANAGEMENT
 // -------------------------------------------------------------
+
+function resolveCategoryId(input?: string | null): string {
+  if (!input) return 'cat_agakiza';
+  const clean = input.trim().toLowerCase();
+  if (clean.includes('agakiza') || clean === '1' || clean === 'cat_agakiza') return 'cat_agakiza';
+  if (clean.includes('ijuru') || clean === '2' || clean === 'cat_ijuru') return 'cat_ijuru';
+  if (clean.includes('gushima') || clean === '3' || clean === 'cat_gushima') return 'cat_gushima';
+  if (clean.includes('kwizera') || clean === '4' || clean === 'cat_kwizera') return 'cat_kwizera';
+  return 'cat_agakiza';
+}
+
+function parseSongsFromDocumentText(text: string): Array<{
+  song_number: string;
+  title: string;
+  lyrics: string;
+  category: string;
+}> {
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  const categoryHeaders = [
+    { cat: 'AGAKIZA', regex: /(?:^|\n)\s*(?:Category\s*\d*[\.:\-]?\s*)?AGAKIZA[^\n]*/gi },
+    { cat: 'IJURU', regex: /(?:^|\n)\s*(?:Category\s*\d*[\.:\-]?\s*)?IJURU[^\n]*/gi },
+    { cat: 'GUSHIMA', regex: /(?:^|\n)\s*(?:Category\s*\d*[\.:\-]?\s*)?GUSHIMA[^\n]*/gi },
+    { cat: 'KWIZERA', regex: /(?:^|\n)\s*(?:Category\s*\d*[\.:\-]?\s*)?KWIZERA[^\n]*/gi }
+  ];
+
+  const foundMarkers: Array<{ category: string; index: number; headerLength: number }> = [];
+  for (const c of categoryHeaders) {
+    let m: RegExpExecArray | null;
+    while ((m = c.regex.exec(normalized)) !== null) {
+      foundMarkers.push({
+        category: c.cat,
+        index: m.index,
+        headerLength: m[0].length
+      });
+    }
+  }
+
+  foundMarkers.sort((a, b) => a.index - b.index);
+
+  const songs: Array<{ song_number: string; title: string; lyrics: string; category: string }> = [];
+
+  const isLikelySongTitle = (raw: string): boolean => {
+    const lettersOnly = raw.replace(/[^a-zA-Z]/g, '');
+    if (lettersOnly.length < 2) return false;
+    const uppercaseLetters = raw.replace(/[^A-Z]/g, '');
+    const ratio = uppercaseLetters.length / lettersOnly.length;
+    return ratio >= 0.65;
+  };
+
+  const extractFromSection = (sectionText: string, category: string) => {
+    const songHeaderRegex = /(?:^|\n)\s*(\d+)[\.\)]\s*([^\n\r]+)/g;
+    const matches: Array<{ number: string; title: string; index: number; headerLength: number }> = [];
+    let m: RegExpExecArray | null;
+    while ((m = songHeaderRegex.exec(sectionText)) !== null) {
+      const rawTitle = m[2].trim();
+      if (isLikelySongTitle(rawTitle)) {
+        matches.push({
+          number: m[1],
+          title: rawTitle,
+          index: m.index,
+          headerLength: m[0].length
+        });
+      }
+    }
+
+    for (let i = 0; i < matches.length; i++) {
+      const cur = matches[i];
+      const nextStart = i < matches.length - 1 ? matches[i + 1].index : sectionText.length;
+      let lyrics = sectionText.substring(cur.index + cur.headerLength, nextStart).trim();
+      lyrics = lyrics.replace(/March 8, 2016\s*\[.*?Aimable HA/gi, '').trim();
+      songs.push({
+        song_number: cur.number,
+        title: cur.title,
+        lyrics,
+        category
+      });
+    }
+  };
+
+  if (foundMarkers.length > 0) {
+    for (let i = 0; i < foundMarkers.length; i++) {
+      const cur = foundMarkers[i];
+      const nextStart = i < foundMarkers.length - 1 ? foundMarkers[i + 1].index : normalized.length;
+      const sectionText = normalized.substring(cur.index + cur.headerLength, nextStart).trim();
+      extractFromSection(sectionText, cur.category);
+    }
+  } else {
+    extractFromSection(normalized, 'AGAKIZA');
+  }
+
+  return songs;
+}
+
+// Stats for Admin Song Management Dashboard (Requirement 15)
+app.get('/api/admin/songs/stats', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const totalSongs = db.prepare('SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL)').get() as any;
+    const publishedSongs = db.prepare("SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL) AND (status = 'published' OR status IS NULL)").get() as any;
+    const unpublishedSongs = db.prepare("SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL) AND status = 'draft'").get() as any;
+    const deletedSongs = db.prepare('SELECT COUNT(*) as count FROM songs WHERE is_deleted = 1').get() as any;
+
+    const catAgakiza = db.prepare("SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL) AND category_id = 'cat_agakiza'").get() as any;
+    const catIjuru = db.prepare("SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL) AND category_id = 'cat_ijuru'").get() as any;
+    const catGushima = db.prepare("SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL) AND category_id = 'cat_gushima'").get() as any;
+    const catKwizera = db.prepare("SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL) AND category_id = 'cat_kwizera'").get() as any;
+
+    res.json({
+      totalSongs: totalSongs?.count || 0,
+      publishedSongs: publishedSongs?.count || 0,
+      unpublishedSongs: unpublishedSongs?.count || 0,
+      deletedSongs: deletedSongs?.count || 0,
+      songsInAgakiza: catAgakiza?.count || 0,
+      songsInIjuru: catIjuru?.count || 0,
+      songsInGushima: catGushima?.count || 0,
+      songsInKwizera: catKwizera?.count || 0
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch song stats' });
+  }
+});
+
+// Import songs from Word (.docx), text file, or JSON array
+app.post('/api/admin/songs/import', requireAdmin, upload.single('file'), async (req: AuthRequest, res) => {
+  try {
+    let rawText = '';
+    let parsedSongList: Array<{
+      song_number: string;
+      title: string;
+      lyrics: string;
+      category: string;
+      status?: string;
+    }> = [];
+
+    if (req.file) {
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      if (ext === '.docx') {
+        const result = await mammoth.extractRawText({ path: req.file.path });
+        rawText = result.value || '';
+      } else if (ext === '.json') {
+        const fileContent = fs.readFileSync(req.file.path, 'utf8');
+        try {
+          const jsonSongs = JSON.parse(fileContent);
+          if (Array.isArray(jsonSongs)) {
+            parsedSongList = jsonSongs.map((s: any) => ({
+              song_number: String(s.song_number || s.number || ''),
+              title: s.title || '',
+              lyrics: s.lyrics || s.content || '',
+              category: s.category || s.category_name || s.category_id || 'AGAKIZA',
+              status: s.status || 'published'
+            }));
+          }
+        } catch (e) {
+          rawText = fileContent;
+        }
+      } else {
+        rawText = fs.readFileSync(req.file.path, 'utf8');
+      }
+
+      // Cleanup uploaded temp file
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e) {}
+    } else if (req.body.text && typeof req.body.text === 'string') {
+      rawText = req.body.text;
+    } else if (Array.isArray(req.body.songs)) {
+      parsedSongList = req.body.songs;
+    } else {
+      return res.status(400).json({ error: 'Nta dosiye cyangwa inyandiko yoherejwe (No file or text provided)' });
+    }
+
+    // Parse raw text into structured songs if needed
+    if (rawText && parsedSongList.length === 0) {
+      parsedSongList = parseSongsFromDocumentText(rawText);
+    }
+
+    if (parsedSongList.length === 0) {
+      return res.status(400).json({
+        error: 'Nta ndirimbo zabonetse mu nyandiko (No songs found). Suzuma niba harimo ibyiciro 4 (AGAKIZA, IJURU, GUSHIMA, KWIZERA) n\'indirimbo zanditse nka: 1. UMUTWE.'
+      });
+    }
+
+    const existingSongs = db.prepare(`
+      SELECT s.id, LOWER(TRIM(s.title)) as norm_title, s.song_number, s.category_id
+      FROM songs s
+      WHERE (s.is_deleted = 0 OR s.is_deleted IS NULL)
+    `).all() as any[];
+
+    const importedSongs: any[] = [];
+    const skippedSongs: any[] = [];
+
+    for (const item of parsedSongList) {
+      const cleanTitle = (item.title || '').trim();
+      if (!cleanTitle) continue;
+
+      const normTitle = cleanTitle.toLowerCase();
+      const songNumber = (item.song_number || '').trim();
+      const catId = resolveCategoryId(item.category);
+      const cleanLyrics = (item.lyrics || '').trim();
+
+      // Duplicate check: title and category match
+      const isDuplicate = existingSongs.some(es => {
+        return es.norm_title === normTitle && (es.category_id === catId || !es.category_id);
+      });
+
+      if (isDuplicate) {
+        skippedSongs.push({
+          title: cleanTitle,
+          song_number: songNumber,
+          category: catId,
+          reason: 'Duplicate: indirimbo isanzwe mu gitabo'
+        });
+        continue;
+      }
+
+      const newSongId = 'song_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      const parsedNum = parseInt(songNumber, 10);
+      const displayOrder = !isNaN(parsedNum) ? parsedNum : (existingSongs.length + importedSongs.length + 1);
+
+      db.prepare(`
+        INSERT INTO songs (
+          id, title, song_number, composer, category_id, release_status,
+          release_date, description, cover_image_url, access_password_hash,
+          status, is_deleted, created_by, display_order
+        ) VALUES (?, ?, ?, ?, ?, 'released', ?, '', '', NULL, ?, 0, ?, ?)
+      `).run(
+        newSongId,
+        cleanTitle,
+        songNumber || null,
+        'La Lumiere Choir',
+        catId,
+        new Date().toISOString().split('T')[0],
+        item.status === 'draft' ? 'draft' : 'published',
+        req.user!.id,
+        displayOrder
+      );
+
+      // Insert lyrics verbatim
+      if (cleanLyrics) {
+        db.prepare(`
+          INSERT INTO lyrics (id, song_id, content, language)
+          VALUES (?, ?, ?, 'rw')
+        `).run('lyr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), newSongId, cleanLyrics);
+      }
+
+      importedSongs.push({
+        id: newSongId,
+        title: cleanTitle,
+        song_number: songNumber,
+        category_id: catId,
+        status: item.status === 'draft' ? 'draft' : 'published'
+      });
+
+      existingSongs.push({
+        id: newSongId,
+        norm_title: normTitle,
+        song_number: songNumber,
+        category_id: catId
+      });
+    }
+
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'IMPORT_SONGS',
+      'songs',
+      'batch_import',
+      `Imported ${importedSongs.length} songs, skipped ${skippedSongs.length} duplicates`
+    );
+
+    const totalCountRow = db.prepare('SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL)').get() as any;
+
+    res.json({
+      success: true,
+      message: `Hashyizwemo indirimbo nshya ${importedSongs.length}. Hasimbutswe ${skippedSongs.length} zisanzwemo.`,
+      importedCount: importedSongs.length,
+      skippedCount: skippedSongs.length,
+      importedSongs,
+      skippedSongs,
+      totalSongsInDb: totalCountRow?.count || 0
+    });
+  } catch (err: any) {
+    console.error('Song import error:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikosa mu kwinjiza indirimbo (Failed to import songs)' });
+  }
+});
+
 app.get('/api/admin/songs', requireAdmin, (req: AuthRequest, res) => {
   try {
     const { search, category, status, release_status, include_deleted } = req.query;
@@ -2716,30 +3006,36 @@ app.post('/api/admin/songs', requireAdmin, (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Umutwe w\'indirimbo urakenewe (Song title required)' });
     }
 
-    const songId = 'song_' + Date.now();
+    const songId = 'song_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
     const pwdHash = access_password && access_password.trim() ? bcrypt.hashSync(access_password.trim(), 10) : null;
     const finalStatus = status === 'draft' ? 'draft' : 'published';
     const finalReleaseStatus = release_status === 'unreleased' ? 'unreleased' : 'released';
+    const finalCategoryId = resolveCategoryId(category_id);
+
+    const parsedNum = parseInt(song_number, 10);
+    const nextOrderRow = db.prepare('SELECT COALESCE(MAX(display_order), 0) + 1 as next_order FROM songs WHERE category_id = ?').get(finalCategoryId) as any;
+    const displayOrder = !isNaN(parsedNum) ? parsedNum : (nextOrderRow?.next_order || 1);
 
     db.prepare(`
       INSERT INTO songs (
         id, title, song_number, composer, category_id, release_status,
         release_date, description, cover_image_url, access_password_hash,
-        status, is_deleted, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+        status, is_deleted, created_by, display_order
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
     `).run(
       songId,
       title.trim(),
-      song_number || null,
+      song_number ? String(song_number).trim() : null,
       composer?.trim() || 'La Lumiere Choir',
-      category_id || null,
+      finalCategoryId,
       finalReleaseStatus,
-      release_date || null,
+      release_date || new Date().toISOString().split('T')[0],
       description?.trim() || '',
       cover_image_url || '',
       pwdHash,
       finalStatus,
-      req.user!.id
+      req.user!.id,
+      displayOrder
     );
 
     // Add lyrics & solfa
@@ -2798,17 +3094,21 @@ app.put('/api/admin/songs/:id', requireAdmin, (req: AuthRequest, res) => {
       language
     } = req.body;
 
+    const finalCategoryId = category_id !== undefined ? resolveCategoryId(category_id) : undefined;
+    const parsedNum = parseInt(song_number, 10);
+
     let pwdUpdateClause = '';
     const params: any[] = [
       title?.trim(),
-      song_number || null,
+      song_number ? String(song_number).trim() : null,
       composer?.trim() || 'La Lumiere Choir',
-      category_id || null,
+      finalCategoryId || null,
       release_status || 'released',
       release_date || null,
       description || '',
       cover_image_url || '',
-      status || 'published'
+      status || 'published',
+      !isNaN(parsedNum) ? parsedNum : 0
     ];
 
     if (access_password !== undefined) {
@@ -2827,9 +3127,10 @@ app.put('/api/admin/songs/:id', requireAdmin, (req: AuthRequest, res) => {
       UPDATE songs
       SET title = ?, song_number = ?, composer = ?, category_id = ?, release_status = ?,
           release_date = ?, description = ?, cover_image_url = ?, status = ?,
+          display_order = CASE WHEN ? > 0 THEN ? ELSE display_order END,
           updated_at = CURRENT_TIMESTAMP ${pwdUpdateClause}
       WHERE id = ?
-    `).run(...params);
+    `).run(...params, !isNaN(parsedNum) ? parsedNum : 0);
 
     // Update lyrics
     if (lyrics !== undefined || solfa_notation !== undefined) {
