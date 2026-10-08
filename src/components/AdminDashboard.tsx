@@ -36,6 +36,7 @@ import {
 import { AdminLoginPortal } from './admin/AdminLoginPortal';
 import { AdminOverviewTab } from './admin/AdminOverviewTab';
 import { AdminSongsTab } from './admin/AdminSongsTab';
+import { AdminSongManagement } from './AdminSongManagement';
 import { AdminEventsTab } from './admin/AdminEventsTab';
 import { AdminMediaTab } from './admin/AdminMediaTab';
 import { AdminContentTab } from './admin/AdminContentTab';
@@ -339,9 +340,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <AdminEventsTab onRefreshOverview={loadDashboardData} />
       )}
 
-      {/* 2. SONGS TAB */}
+      {/* 2. SONGS TAB (Dedicated AdminSongManagement component with Add, Edit, Delete, Overview tabs) */}
       {activeTab === 'songs' && (
-        <AdminSongsTab
+        <AdminSongManagement
           songs={songs}
           categories={categories}
           onRefresh={loadDashboardData}
