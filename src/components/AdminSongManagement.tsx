@@ -15,6 +15,15 @@ import {
   Sparkles,
   Archive,
   BarChart2,
+  UploadCloud,
+  FileSpreadsheet,
+  Download,
+  FileText,
+  CheckCheck,
+  AlertTriangle,
+  Layers,
+  Table,
+  HelpCircle,
 } from 'lucide-react';
 import { ConfirmDialog } from './admin/ConfirmDialog';
 
@@ -27,6 +36,76 @@ export interface AdminSongManagementProps {
 }
 
 export type SongManagementTab = 'add' | 'edit' | 'delete' | 'overview';
+
+export interface ParsedBatchSong {
+  song_number: string;
+  title: string;
+  category: string;
+  category_id: string;
+  composer: string;
+  lyrics: string;
+  description: string;
+  language: string;
+  release_date: string;
+  status: 'published' | 'draft';
+  release_status: 'released' | 'unreleased';
+  solfa_notation: string;
+  isValid: boolean;
+  validationErrors: string[];
+  isDuplicate: boolean;
+}
+
+export function parseCSVRowsClient(csvText: string): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = '';
+  let insideQuotes = false;
+
+  const normalized = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized[i];
+    const nextChar = normalized[i + 1];
+
+    if (insideQuotes) {
+      if (char === '"') {
+        if (nextChar === '"') {
+          currentField += '"';
+          i++;
+        } else {
+          insideQuotes = false;
+        }
+      } else {
+        currentField += char;
+      }
+    } else {
+      if (char === '"') {
+        insideQuotes = true;
+      } else if (char === ',') {
+        currentRow.push(currentField);
+        currentField = '';
+      } else if (char === '\n') {
+        currentRow.push(currentField);
+        if (currentRow.some(col => col.trim().length > 0)) {
+          rows.push(currentRow);
+        }
+        currentRow = [];
+        currentField = '';
+      } else {
+        currentField += char;
+      }
+    }
+  }
+
+  if (currentField.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentField);
+    if (currentRow.some(col => col.trim().length > 0)) {
+      rows.push(currentRow);
+    }
+  }
+
+  return rows;
+}
 
 interface SongFormData {
   title: string;
@@ -142,11 +221,31 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
   const [activeTab, setActiveTab] = useState<SongManagementTab>('overview');
 
   // Add Form State
+  const [addMode, setAddMode] = useState<'single' | 'batch'>('single');
   const [addForm, setAddForm] = useState<SongFormData>(DEFAULT_FORM_DATA);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState('');
   const [addValidationErrors, setAddValidationErrors] = useState<Partial<Record<keyof SongFormData, string>>>({});
+
+  // Batch CSV Upload State
+  const [batchCsvText, setBatchCsvText] = useState('');
+  const [batchFileName, setBatchFileName] = useState('');
+  const [batchFile, setBatchFile] = useState<File | null>(null);
+  const [parsedBatchSongs, setParsedBatchSongs] = useState<ParsedBatchSong[]>([]);
+  const [isBatchParsing, setIsBatchParsing] = useState(false);
+  const [isBatchSubmitting, setIsBatchSubmitting] = useState(false);
+  const [batchError, setBatchError] = useState('');
+  const [batchSuccess, setBatchSuccess] = useState('');
+  const [batchUploadResult, setBatchUploadResult] = useState<{
+    importedCount: number;
+    skippedCount: number;
+    importedSongs?: any[];
+    skippedSongs?: any[];
+  } | null>(null);
+  const [csvInputMethod, setCsvInputMethod] = useState<'file' | 'paste'>('file');
+  const [batchFilterTab, setBatchFilterTab] = useState<'all' | 'valid' | 'invalid' | 'duplicate'>('all');
+  const [showBatchHelp, setShowBatchHelp] = useState(false);
 
   // Edit Tab State
   const [selectedSongForEdit, setSelectedSongForEdit] = useState<Song | null>(null);
@@ -244,6 +343,219 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
     } finally {
       setIsAdding(false);
     }
+  };
+
+  // ----------------------------------------------------
+  // SUB-COMPONENT: BATCH CSV UPLOAD HANDLERS
+  // ----------------------------------------------------
+  const handleDownloadCsvTemplate = () => {
+    const csvHeaders = 'Song_Number,Title,Category,Composer,Description,Language,Release_Date,Status,Release_Status,Lyrics,Solfa_Notation\r\n';
+    const sample1 = '1,"NGWINO TUJYANE","AGAKIZA","La Lumiere Choir","Indirimbo yo guhamagarira abantu agakiza n\'urukundo rw\'Imana","Kinyarwanda","2026-01-01","published","released","1. Ngwino tujyane iwacu aho Imana yateguriye abera...\n\nR/ Uwo yatubereye igitambo...","d : r : m | f : s : l"\r\n';
+    const sample2 = '2,"TURI ABAGENZI","IJURU","La Lumiere Choir","Indirimbo y\'urugendo rugana mu ijuru","Kinyarwanda","2026-01-01","published","released","1. Bakundwa turi abagenzi kandi turi abimukira...\n\nR/ Nkumbuye cyane kwibera i Siyoni...","m : s : d | r : f : l"\r\n';
+    const sample3 = '3,"TURAGUSHIMA MANA","GUSHIMA","La Lumiere Choir","Indirimbo yo gushima no guhimbaza Imana","Kinyarwanda","2026-01-01","published","released","1. Turagushima Mana turaguhimbaza mukunzi we...\n\nR/ Ntacyo twabona twakwitura mwami...","s : m : d | f : r : t"\r\n';
+    const sample4 = '4,"ABANYAMUGISHA","KWIZERA","La Lumiere Choir","Indirimbo yo kwizera umugisha w\'Imana","Kinyarwanda","2026-01-01","published","released","1. Baraki yashatse kuvuma aba islaheri...\n\nR/ Turi abanyamugisha twaratoranijwe...","d : m : s | l : s : m"\r\n';
+    const csvData = csvHeaders + sample1 + sample2 + sample3 + sample4;
+
+    const blob = new Blob(['\uFEFF' + csvData], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'indirimbo_batch_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCsvText = (text: string) => {
+    setIsBatchParsing(true);
+    setBatchError('');
+    setBatchSuccess('');
+    setBatchUploadResult(null);
+
+    try {
+      const rows = parseCSVRowsClient(text);
+      if (rows.length < 2) {
+        setParsedBatchSongs([]);
+        setBatchError('Dosiye ya CSV ntabwo irimo amakuru ahagije (Inkingi n\'inyandiko z\'indirimbo birakenewe).');
+        return;
+      }
+
+      const rawHeaders = rows[0].map(h => h.trim().toLowerCase().replace(/[\s_#-]+/g, ''));
+      const findColIndex = (...candidates: string[]): number => {
+        return rawHeaders.findIndex(h => candidates.some(c => h.includes(c)));
+      };
+
+      const titleIdx = findColIndex('title', 'umutwe', 'name', 'izina');
+      const catIdx = findColIndex('category', 'icyiciro', 'cat');
+      const lyricsIdx = findColIndex('lyrics', 'amagambo', 'content', 'text');
+      const numberIdx = findColIndex('songnumber', 'number', 'nimero', 'num', 'no');
+      const composerIdx = findColIndex('composer', 'uwahimbye', 'author', 'artist');
+      const descIdx = findColIndex('description', 'ibisobanuro', 'desc', 'summary');
+      const langIdx = findColIndex('language', 'ururimi', 'lang');
+      const dateIdx = findColIndex('releasedate', 'date', 'itariki');
+      const statusIdx = findColIndex('status', 'imimerere');
+      const releaseStatusIdx = findColIndex('releasestatus', 'isomwa', 'itangazwa');
+      const solfaIdx = findColIndex('solfa', 'notation', 'amanota', 'notes');
+
+      if (titleIdx === -1 && lyricsIdx === -1) {
+        setBatchError('Inkingi z\'Umutwe w\'indirimbo (Title) cyangwa Amagambo (Lyrics) ntabwo zabonetse muri CSV. Reba template.');
+        return;
+      }
+
+      const result: ParsedBatchSong[] = [];
+
+      for (let r = 1; r < rows.length; r++) {
+        const row = rows[r];
+        if (row.every(c => !c.trim())) continue;
+
+        const title = titleIdx !== -1 ? (row[titleIdx] || '').trim() : '';
+        const rawCategory = catIdx !== -1 ? (row[catIdx] || '').trim() : 'AGAKIZA';
+        const lyrics = lyricsIdx !== -1 ? (row[lyricsIdx] || '').trim() : '';
+        const song_number = numberIdx !== -1 ? (row[numberIdx] || '').trim() : '';
+        const composer = composerIdx !== -1 ? (row[composerIdx] || '').trim() : 'La Lumiere Choir';
+        const description = descIdx !== -1 ? (row[descIdx] || '').trim() : '';
+        const language = langIdx !== -1 ? (row[langIdx] || '').trim() : 'Kinyarwanda';
+        const release_date = dateIdx !== -1 ? (row[dateIdx] || '').trim() : new Date().toISOString().split('T')[0];
+        const statusVal = statusIdx !== -1 ? (row[statusIdx] || '').trim().toLowerCase() : 'published';
+        const releaseStatusVal = releaseStatusIdx !== -1 ? (row[releaseStatusIdx] || '').trim().toLowerCase() : 'released';
+        const solfa_notation = solfaIdx !== -1 ? (row[solfaIdx] || '').trim() : '';
+
+        const normCat = rawCategory.toLowerCase();
+        let categoryName = 'AGAKIZA';
+        let categoryId = 'cat_agakiza';
+        if (normCat.includes('ijuru') || normCat === '2') {
+          categoryName = 'IJURU';
+          categoryId = 'cat_ijuru';
+        } else if (normCat.includes('gushima') || normCat === '3') {
+          categoryName = 'GUSHIMA';
+          categoryId = 'cat_gushima';
+        } else if (normCat.includes('kwizera') || normCat === '4') {
+          categoryName = 'KWIZERA';
+          categoryId = 'cat_kwizera';
+        }
+
+        const validationErrors: string[] = [];
+        if (!title) validationErrors.push("Umutwe w'indirimbo (Title) urabura");
+        if (!lyrics) validationErrors.push("Amagambo y'indirimbo (Lyrics) arabura");
+
+        const normTitle = title.toLowerCase();
+        const isDuplicate = songs.some(s => {
+          if (s.is_deleted) return false;
+          return s.title.toLowerCase().trim() === normTitle;
+        });
+
+        result.push({
+          song_number,
+          title,
+          category: categoryName,
+          category_id: categoryId,
+          composer: composer || 'La Lumiere Choir',
+          lyrics,
+          description: description || `Indirimbo y'ubutumwa bwiza ya ${composer || 'La Lumiere Choir'}.`,
+          language: language || 'Kinyarwanda',
+          release_date: release_date || new Date().toISOString().split('T')[0],
+          status: statusVal === 'draft' ? 'draft' : 'published',
+          release_status: releaseStatusVal === 'unreleased' ? 'unreleased' : 'released',
+          solfa_notation,
+          isValid: validationErrors.length === 0,
+          validationErrors,
+          isDuplicate,
+        });
+      }
+
+      setParsedBatchSongs(result);
+      if (result.length === 0) {
+        setBatchError('Nta mirongo y\'indirimbo yabonetse muri iyi CSV.');
+      }
+    } catch (err: any) {
+      setBatchError('Habaye ikosa mu gusesengura CSV: ' + (err.message || 'Error'));
+    } finally {
+      setIsBatchParsing(false);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setBatchFileName(file.name);
+    setBatchFile(file);
+
+    const reader = new FileReader();
+    reader.onload = evt => {
+      const text = (evt.target?.result as string) || '';
+      setBatchCsvText(text);
+      parseCsvText(text);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleExecuteBatchImport = async () => {
+    setBatchError('');
+    setBatchSuccess('');
+
+    const validSongs = parsedBatchSongs.filter(s => s.isValid);
+    if (validSongs.length === 0) {
+      setBatchError('Nta ndirimbo zujuje ibisabwa zo kwinjiza (No valid songs to import).');
+      return;
+    }
+
+    try {
+      setIsBatchSubmitting(true);
+      const token = localStorage.getItem('token') || '';
+
+      const songsPayload = validSongs.map(s => ({
+        song_number: s.song_number,
+        title: s.title,
+        category: s.category,
+        category_id: s.category_id,
+        composer: s.composer,
+        description: s.description,
+        language: s.language,
+        release_date: s.release_date,
+        status: s.status,
+        release_status: s.release_status,
+        lyrics: s.lyrics,
+        solfa_notation: s.solfa_notation,
+      }));
+
+      const response = await fetch('/api/admin/songs/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ songs: songsPayload }),
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || 'Habaye ikosa mu kwinjiza indirimbo.');
+      }
+
+      setBatchUploadResult(resData);
+      setBatchSuccess(`Kwinjiza byarangiye! Hashyizwemo indirimbo ${resData.importedCount || 0}, hasimbutswe ${resData.skippedCount || 0} zisanzwemo.`);
+      onRefresh();
+    } catch (err: any) {
+      setBatchError(err.message || 'Habaye ikosa mu kwinjiza indirimbo kuri CSV.');
+    } finally {
+      setIsBatchSubmitting(false);
+    }
+  };
+
+  const handleClearBatch = () => {
+    setBatchCsvText('');
+    setBatchFileName('');
+    setBatchFile(null);
+    setParsedBatchSongs([]);
+    setBatchError('');
+    setBatchSuccess('');
+    setBatchUploadResult(null);
+  };
+
+  const handleRemoveParsedSong = (index: number) => {
+    setParsedBatchSongs(prev => prev.filter((_, i) => i !== index));
   };
 
   // ----------------------------------------------------
@@ -594,361 +906,869 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
       {/* ---------------------------------------------------- */}
       {activeTab === 'add' && (
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs">
-          <div className="max-w-2xl mx-auto space-y-6">
-            <div>
-              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 font-serif">
-                <Plus className="w-5 h-5 text-blue-950" />
-                <span>Kwandika Indirimbo Nshya (Add New Song)</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Uzuza ibisobanuro n'amagambo y'indirimbo (Lyrics). Iyi ndirimbo izahita yinjizwa mu bubiko bwa SQLite.
-              </p>
-            </div>
-
-            {addError && (
-              <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                <span>{addError}</span>
-              </div>
-            )}
-
-            {addSuccess && (
-              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
-                <span>{addSuccess}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleAddSubmit} className="space-y-6">
-              {/* SECTION 1: TITLE & CATEGORY */}
-              <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-4">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1 border-b border-slate-200">
-                  <BookOpen className="w-4 h-4 text-blue-900" />
-                  <span>1. Umutwe n'Icyiciro (Title & Category)</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Umutwe w'Indirimbo (Title) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={addForm.title}
-                      onChange={e => {
-                        setAddForm({ ...addForm, title: e.target.value });
-                        if (addValidationErrors.title) {
-                          setAddValidationErrors(prev => ({ ...prev, title: undefined }));
-                        }
-                      }}
-                      placeholder="Urugero: NGWINO TUJYANE"
-                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
-                        addValidationErrors.title
-                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600 focus:ring-1 focus:ring-rose-200'
-                          : 'border-slate-300 focus:border-blue-900 focus:ring-1 focus:ring-blue-900'
-                      }`}
-                    />
-                    {addValidationErrors.title && (
-                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        <span>{addValidationErrors.title}</span>
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Icyiciro (Category) <span className="text-rose-500">*</span>
-                    </label>
-                    <select
-                      value={addForm.category_id}
-                      onChange={e => {
-                        setAddForm({ ...addForm, category_id: e.target.value });
-                        if (addValidationErrors.category_id) {
-                          setAddValidationErrors(prev => ({ ...prev, category_id: undefined }));
-                        }
-                      }}
-                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium bg-white transition-colors ${
-                        addValidationErrors.category_id
-                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                          : 'border-slate-300 focus:border-blue-900 focus:ring-1 focus:ring-blue-900'
-                      }`}
-                    >
-                      {resolvedCategories.map(cat => (
-                        <option key={cat.id} value={cat.id}>
-                          {cat.name} ({cat.slug})
-                        </option>
-                      ))}
-                    </select>
-                    {addValidationErrors.category_id && (
-                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        <span>{addValidationErrors.category_id}</span>
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* SECTION 2: METADATA */}
-              <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-4">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1 border-b border-slate-200">
-                  <Sparkles className="w-4 h-4 text-blue-900" />
-                  <span>2. Amakuru y'Inyongera (Song Metadata)</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Nimero (Song #) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={addForm.song_number}
-                      onChange={e => {
-                        setAddForm({ ...addForm, song_number: e.target.value });
-                        if (addValidationErrors.song_number) {
-                          setAddValidationErrors(prev => ({ ...prev, song_number: undefined }));
-                        }
-                      }}
-                      placeholder="Urugero: 01"
-                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
-                        addValidationErrors.song_number
-                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                          : 'border-slate-300 focus:border-blue-900'
-                      }`}
-                    />
-                    {addValidationErrors.song_number && (
-                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        <span>{addValidationErrors.song_number}</span>
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Uwahimbye (Composer) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={addForm.composer}
-                      onChange={e => {
-                        setAddForm({ ...addForm, composer: e.target.value });
-                        if (addValidationErrors.composer) {
-                          setAddValidationErrors(prev => ({ ...prev, composer: undefined }));
-                        }
-                      }}
-                      placeholder="La Lumiere Choir"
-                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
-                        addValidationErrors.composer
-                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                          : 'border-slate-300 focus:border-blue-900'
-                      }`}
-                    />
-                    {addValidationErrors.composer && (
-                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        <span>{addValidationErrors.composer}</span>
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Ururimi (Language) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={addForm.language}
-                      onChange={e => {
-                        setAddForm({ ...addForm, language: e.target.value });
-                        if (addValidationErrors.language) {
-                          setAddValidationErrors(prev => ({ ...prev, language: undefined }));
-                        }
-                      }}
-                      placeholder="Kinyarwanda"
-                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
-                        addValidationErrors.language
-                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                          : 'border-slate-300 focus:border-blue-900'
-                      }`}
-                    />
-                    {addValidationErrors.language && (
-                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        <span>{addValidationErrors.language}</span>
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Itariki (Release Date) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      value={addForm.release_date}
-                      onChange={e => {
-                        setAddForm({ ...addForm, release_date: e.target.value });
-                        if (addValidationErrors.release_date) {
-                          setAddValidationErrors(prev => ({ ...prev, release_date: undefined }));
-                        }
-                      }}
-                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium bg-white transition-colors ${
-                        addValidationErrors.release_date
-                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                          : 'border-slate-300 focus:border-blue-900'
-                      }`}
-                    />
-                    {addValidationErrors.release_date && (
-                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        <span>{addValidationErrors.release_date}</span>
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Uko ifashwe (Status) <span className="text-rose-500">*</span>
-                    </label>
-                    <select
-                      value={addForm.status}
-                      onChange={e => setAddForm({ ...addForm, status: e.target.value as any })}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 bg-white"
-                    >
-                      <option value="published">Published (Irakora / Iboneka hose)</option>
-                      <option value="draft">Draft (Inyandiko y'agateganyo)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Isomwa / Itangazwa (Release) <span className="text-rose-500">*</span>
-                    </label>
-                    <select
-                      value={addForm.release_status}
-                      onChange={e => setAddForm({ ...addForm, release_status: e.target.value as any })}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 bg-white"
-                    >
-                      <option value="released">Released (Yarasohotse)</option>
-                      <option value="unreleased">Unreleased (Itegerejwe)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Ibisobanuro by'Indirimbo (Description / Summary) <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={addForm.description}
-                    onChange={e => {
-                      setAddForm({ ...addForm, description: e.target.value });
-                      if (addValidationErrors.description) {
-                        setAddValidationErrors(prev => ({ ...prev, description: undefined }));
-                      }
-                    }}
-                    placeholder="Urugero: Indirimbo yo guhimbaza no gushima Imana kubw'urukundo rwayo..."
-                    className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
-                      addValidationErrors.description
-                        ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
-                        : 'border-slate-300 focus:border-blue-900'
-                    }`}
-                  />
-                  {addValidationErrors.description && (
-                    <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3 shrink-0" />
-                      <span>{addValidationErrors.description}</span>
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Solfa Notation (Notes za Muzika - Optional)
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={addForm.solfa_notation}
-                    onChange={e => setAddForm({ ...addForm, solfa_notation: e.target.value })}
-                    placeholder="d : r : m | f : s : l : d'..."
-                    className="w-full p-3 rounded-xl border border-slate-300 text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-900"
-                  />
-                </div>
-              </div>
-
-              {/* SECTION 3: LYRICS */}
-              <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1 border-b border-slate-200">
-                  <Edit2 className="w-4 h-4 text-blue-900" />
-                  <span>3. Amagambo y'Indirimbo (Lyrics)</span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Amagambo y'Indirimbo (Lyrics) <span className="text-rose-500">*</span>
-                  </label>
-                  <textarea
-                    rows={8}
-                    value={addForm.lyrics}
-                    onChange={e => {
-                      setAddForm({ ...addForm, lyrics: e.target.value });
-                      if (addValidationErrors.lyrics) {
-                        setAddValidationErrors(prev => ({ ...prev, lyrics: undefined }));
-                      }
-                    }}
-                    placeholder={`1. Ngwino tujyane iwacu aho Imana yateguriye abera...\n\nR/ Uwo yatubereye igitambo...`}
-                    className={`w-full p-3 rounded-xl border text-xs font-mono text-slate-900 focus:outline-none transition-colors ${
-                      addValidationErrors.lyrics
-                        ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600 focus:ring-1 focus:ring-rose-200'
-                        : 'border-slate-300 focus:border-blue-900 focus:ring-1 focus:ring-blue-900'
-                    }`}
-                  />
-                  {addValidationErrors.lyrics && (
-                    <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3 shrink-0" />
-                      <span>{addValidationErrors.lyrics}</span>
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddForm(DEFAULT_FORM_DATA);
-                    setAddValidationErrors({});
-                    setAddError('');
-                  }}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
-                >
-                  Gusiba Byose (Clear)
-                </button>
-                <button
-                  type="submit"
-                  disabled={isAdding}
-                  className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-blue-950 hover:bg-blue-900 text-xs font-bold text-white transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  {isAdding ? (
+          <div className={`${addMode === 'batch' ? 'max-w-5xl' : 'max-w-2xl'} mx-auto space-y-6 transition-all`}>
+            {/* Header & Mode Switcher */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 font-serif">
+                  {addMode === 'single' ? (
                     <>
-                      <RotateCcw className="w-4 h-4 animate-spin" />
-                      <span>Bikomeje kubikwa...</span>
+                      <Plus className="w-5 h-5 text-blue-950" />
+                      <span>Kwandika Indirimbo Nshya (Add New Song)</span>
                     </>
                   ) : (
                     <>
-                      <CheckCircle className="w-4 h-4" />
-                      <span>Bika Indirimbo (Save Song)</span>
+                      <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                      <span>Kwinjiza Indirimbo Nyinshi kuri CSV (Batch CSV Import)</span>
                     </>
                   )}
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  {addMode === 'single'
+                    ? "Uzuza ibisobanuro n'amagambo y'indirimbo (Lyrics). Iyi ndirimbo izahita yinjizwa mu bubiko bwa SQLite."
+                    : "Koresha template ya CSV kugira ngo winjize indirimbo nyinshi n'amagambo yazo icyarimwe."}
+                </p>
+              </div>
+
+              {/* Mode Toggle Pills */}
+              <div className="inline-flex p-1 bg-slate-100 rounded-2xl border border-slate-200 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setAddMode('single')}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    addMode === 'single'
+                      ? 'bg-blue-950 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Kwandika Imwe</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddMode('batch')}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    addMode === 'batch'
+                      ? 'bg-blue-950 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Kwinjiza Nyinshi (CSV)</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase bg-amber-400 text-slate-950">
+                    Batch
+                  </span>
                 </button>
               </div>
-            </form>
+            </div>
+
+            {/* ==================================================== */}
+            {/* SUB-VIEW 1: SINGLE SONG FORM */}
+            {/* ==================================================== */}
+            {addMode === 'single' && (
+              <>
+                {addError && (
+                  <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span>{addError}</span>
+                  </div>
+                )}
+
+                {addSuccess && (
+                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <span>{addSuccess}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleAddSubmit} className="space-y-6">
+                  {/* SECTION 1: TITLE & CATEGORY */}
+                  <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-4">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1 border-b border-slate-200">
+                      <BookOpen className="w-4 h-4 text-blue-900" />
+                      <span>1. Umutwe n'Icyiciro (Title & Category)</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Umutwe w'Indirimbo (Title) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={addForm.title}
+                          onChange={e => {
+                            setAddForm({ ...addForm, title: e.target.value });
+                            if (addValidationErrors.title) {
+                              setAddValidationErrors(prev => ({ ...prev, title: undefined }));
+                            }
+                          }}
+                          placeholder="Urugero: NGWINO TUJYANE"
+                          className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
+                            addValidationErrors.title
+                              ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600 focus:ring-1 focus:ring-rose-200'
+                              : 'border-slate-300 focus:border-blue-900 focus:ring-1 focus:ring-blue-900'
+                          }`}
+                        />
+                        {addValidationErrors.title && (
+                          <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            <span>{addValidationErrors.title}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Icyiciro (Category) <span className="text-rose-500">*</span>
+                        </label>
+                        <select
+                          value={addForm.category_id}
+                          onChange={e => {
+                            setAddForm({ ...addForm, category_id: e.target.value });
+                            if (addValidationErrors.category_id) {
+                              setAddValidationErrors(prev => ({ ...prev, category_id: undefined }));
+                            }
+                          }}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium bg-white transition-colors ${
+                            addValidationErrors.category_id
+                              ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                              : 'border-slate-300 focus:border-blue-900 focus:ring-1 focus:ring-blue-900'
+                          }`}
+                        >
+                          {resolvedCategories.map(cat => (
+                            <option key={cat.id} value={cat.id}>
+                              {cat.name} ({cat.slug})
+                            </option>
+                          ))}
+                        </select>
+                        {addValidationErrors.category_id && (
+                          <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            <span>{addValidationErrors.category_id}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SECTION 2: METADATA */}
+                  <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-4">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1 border-b border-slate-200">
+                      <Sparkles className="w-4 h-4 text-blue-900" />
+                      <span>2. Amakuru y'Inyongera (Song Metadata)</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Nimero (Song #) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={addForm.song_number}
+                          onChange={e => {
+                            setAddForm({ ...addForm, song_number: e.target.value });
+                            if (addValidationErrors.song_number) {
+                              setAddValidationErrors(prev => ({ ...prev, song_number: undefined }));
+                            }
+                          }}
+                          placeholder="Urugero: 01"
+                          className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
+                            addValidationErrors.song_number
+                              ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                              : 'border-slate-300 focus:border-blue-900'
+                          }`}
+                        />
+                        {addValidationErrors.song_number && (
+                          <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            <span>{addValidationErrors.song_number}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Uwahimbye (Composer) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={addForm.composer}
+                          onChange={e => {
+                            setAddForm({ ...addForm, composer: e.target.value });
+                            if (addValidationErrors.composer) {
+                              setAddValidationErrors(prev => ({ ...prev, composer: undefined }));
+                            }
+                          }}
+                          placeholder="La Lumiere Choir"
+                          className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
+                            addValidationErrors.composer
+                              ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                              : 'border-slate-300 focus:border-blue-900'
+                          }`}
+                        />
+                        {addValidationErrors.composer && (
+                          <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            <span>{addValidationErrors.composer}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Ururimi (Language) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={addForm.language}
+                          onChange={e => {
+                            setAddForm({ ...addForm, language: e.target.value });
+                            if (addValidationErrors.language) {
+                              setAddValidationErrors(prev => ({ ...prev, language: undefined }));
+                            }
+                          }}
+                          placeholder="Kinyarwanda"
+                          className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
+                            addValidationErrors.language
+                              ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                              : 'border-slate-300 focus:border-blue-900'
+                          }`}
+                        />
+                        {addValidationErrors.language && (
+                          <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            <span>{addValidationErrors.language}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Itariki (Release Date) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="date"
+                          value={addForm.release_date}
+                          onChange={e => {
+                            setAddForm({ ...addForm, release_date: e.target.value });
+                            if (addValidationErrors.release_date) {
+                              setAddValidationErrors(prev => ({ ...prev, release_date: undefined }));
+                            }
+                          }}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium bg-white transition-colors ${
+                            addValidationErrors.release_date
+                              ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                              : 'border-slate-300 focus:border-blue-900'
+                          }`}
+                        />
+                        {addValidationErrors.release_date && (
+                          <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            <span>{addValidationErrors.release_date}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Uko ifashwe (Status) <span className="text-rose-500">*</span>
+                        </label>
+                        <select
+                          value={addForm.status}
+                          onChange={e => setAddForm({ ...addForm, status: e.target.value as any })}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 bg-white"
+                        >
+                          <option value="published">Published (Irakora / Iboneka hose)</option>
+                          <option value="draft">Draft (Inyandiko y'agateganyo)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Isomwa / Itangazwa (Release) <span className="text-rose-500">*</span>
+                        </label>
+                        <select
+                          value={addForm.release_status}
+                          onChange={e => setAddForm({ ...addForm, release_status: e.target.value as any })}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 bg-white"
+                        >
+                          <option value="released">Released (Yarasohotse)</option>
+                          <option value="unreleased">Unreleased (Itegerejwe)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Ibisobanuro by'Indirimbo (Description / Summary) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={addForm.description}
+                        onChange={e => {
+                          setAddForm({ ...addForm, description: e.target.value });
+                          if (addValidationErrors.description) {
+                            setAddValidationErrors(prev => ({ ...prev, description: undefined }));
+                          }
+                        }}
+                        placeholder="Urugero: Indirimbo yo guhimbaza no gushima Imana kubw'urukundo rwayo..."
+                        className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
+                          addValidationErrors.description
+                            ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                            : 'border-slate-300 focus:border-blue-900'
+                        }`}
+                      />
+                      {addValidationErrors.description && (
+                        <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>{addValidationErrors.description}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Solfa Notation (Notes za Muzika - Optional)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={addForm.solfa_notation}
+                        onChange={e => setAddForm({ ...addForm, solfa_notation: e.target.value })}
+                        placeholder="d : r : m | f : s : l : d'..."
+                        className="w-full p-3 rounded-xl border border-slate-300 text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-900"
+                      />
+                    </div>
+                  </div>
+
+                  {/* SECTION 3: LYRICS */}
+                  <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1 border-b border-slate-200">
+                      <Edit2 className="w-4 h-4 text-blue-900" />
+                      <span>3. Amagambo y'Indirimbo (Lyrics)</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Amagambo y'Indirimbo (Lyrics) <span className="text-rose-500">*</span>
+                      </label>
+                      <textarea
+                        rows={8}
+                        value={addForm.lyrics}
+                        onChange={e => {
+                          setAddForm({ ...addForm, lyrics: e.target.value });
+                          if (addValidationErrors.lyrics) {
+                            setAddValidationErrors(prev => ({ ...prev, lyrics: undefined }));
+                          }
+                        }}
+                        placeholder={`1. Ngwino tujyane iwacu aho Imana yateguriye abera...\n\nR/ Uwo yatubereye igitambo...`}
+                        className={`w-full p-3 rounded-xl border text-xs font-mono text-slate-900 focus:outline-none transition-colors ${
+                          addValidationErrors.lyrics
+                            ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600 focus:ring-1 focus:ring-rose-200'
+                            : 'border-slate-300 focus:border-blue-900 focus:ring-1 focus:ring-blue-900'
+                        }`}
+                      />
+                      {addValidationErrors.lyrics && (
+                        <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>{addValidationErrors.lyrics}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddForm(DEFAULT_FORM_DATA);
+                        setAddValidationErrors({});
+                        setAddError('');
+                      }}
+                      className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
+                    >
+                      Gusiba Byose (Clear)
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isAdding}
+                      className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-blue-950 hover:bg-blue-900 text-xs font-bold text-white transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {isAdding ? (
+                        <>
+                          <RotateCcw className="w-4 h-4 animate-spin" />
+                          <span>Bikomeje kubikwa...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          <span>Bika Indirimbo (Save Song)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+
+            {/* ==================================================== */}
+            {/* SUB-VIEW 2: BATCH CSV UPLOAD WORKSPACE */}
+            {/* ==================================================== */}
+            {addMode === 'batch' && (
+              <div className="space-y-6">
+                {/* Download Template & Quick Guide Banner */}
+                <div className="bg-gradient-to-r from-blue-950 to-slate-900 text-white rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-5">
+                  <div className="space-y-1.5 max-w-xl">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 text-[11px] font-bold uppercase tracking-wider">
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                      <span>CSV Template Ifite Urugero</span>
+                    </div>
+                    <h4 className="text-base font-bold text-white">
+                      Koresha CSV Template kugira ngo winjize indirimbo zose icyarimwe
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Kanda buto ikurikira kugira ngo ukure kuri murandasi dosiye y'ikitegererezo ya CSV (<span className="font-mono text-amber-300">indirimbo_batch_template.csv</span>). Irimo inkingi zose zikenewe n'ingero 4 z'indirimbo z'ibyiciro byose (Agakiza, Ijuru, Gushima, Kwizera).
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row md:flex-col gap-2.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleDownloadCsvTemplate}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Kura Kuri Murandasi CSV Template</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowBatchHelp(!showBatchHelp)}
+                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5 text-amber-300" />
+                      <span>{showBatchHelp ? "Hisha Amabwiriza y'Inkingi" : "Reba Amabwiriza y'Inkingi (Guide)"}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Collapsible Column Guide */}
+                {showBatchHelp && (
+                  <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3 animate-in fade-in">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                      <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <Table className="w-4 h-4 text-blue-900" />
+                        <span>Inkingi Zisabwa muri CSV (Columns Reference)</span>
+                      </h5>
+                      <span className="text-[11px] text-slate-500">UTF-8 Encoded • Comma-separated</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                        <p className="font-mono font-bold text-blue-900">Title / Umutwe *</p>
+                        <p className="text-slate-600 text-[11px] mt-0.5">Izina ry'indirimbo (e.g. "NGWINO TUJYANE")</p>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                        <p className="font-mono font-bold text-blue-900">Category / Icyiciro *</p>
+                        <p className="text-slate-600 text-[11px] mt-0.5">AGAKIZA, IJURU, GUSHIMA, cyangwa KWIZERA</p>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                        <p className="font-mono font-bold text-blue-900">Lyrics / Amagambo *</p>
+                        <p className="text-slate-600 text-[11px] mt-0.5">Amagambo y'indirimbo. Shyiramo quotes ("...") niba harimo imirongo myinshi</p>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                        <p className="font-mono font-bold text-slate-800">Song_Number / Nimero</p>
+                        <p className="text-slate-600 text-[11px] mt-0.5">Nimero y'indirimbo mu gitabo (e.g. 1, 02)</p>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                        <p className="font-mono font-bold text-slate-800">Composer / Uwahimbye</p>
+                        <p className="text-slate-600 text-[11px] mt-0.5">Korali cyangwa umuhimbyi (Default: La Lumiere Choir)</p>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                        <p className="font-mono font-bold text-slate-800">Description / Ibisobanuro</p>
+                        <p className="text-slate-600 text-[11px] mt-0.5">Ibisobanuro cyangwa ubutumwa bw'indirimbo</p>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                        <p className="font-mono font-bold text-slate-800">Language / Ururimi</p>
+                        <p className="text-slate-600 text-[11px] mt-0.5">Default: Kinyarwanda</p>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                        <p className="font-mono font-bold text-slate-800">Status & Release_Status</p>
+                        <p className="text-slate-600 text-[11px] mt-0.5">published/draft, released/unreleased</p>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                        <p className="font-mono font-bold text-slate-800">Solfa_Notation</p>
+                        <p className="text-slate-600 text-[11px] mt-0.5">Amanota ya muzika (Optional: d : r : m...)</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Alerts */}
+                {batchError && (
+                  <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                      <span>{batchError}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setBatchError('')}
+                      className="text-rose-600 hover:text-rose-900 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {batchSuccess && (
+                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
+                      <span>{batchSuccess}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setBatchSuccess('')}
+                      className="text-emerald-600 hover:text-emerald-900 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Batch Upload Result Summary Card */}
+                {batchUploadResult && (
+                  <div className="bg-emerald-50/80 rounded-2xl p-5 border border-emerald-200 text-emerald-950 space-y-3">
+                    <div className="flex items-center gap-2 font-bold text-sm text-emerald-900">
+                      <CheckCheck className="w-5 h-5 text-emerald-600" />
+                      <span>Ibyavuye mu kwinjiza kuri CSV (Import Summary)</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                      <div className="p-3 bg-white rounded-xl border border-emerald-200 shadow-2xs">
+                        <span className="text-slate-500 font-semibold block">Indirimbo Zinjiye Neza</span>
+                        <p className="text-xl font-bold text-emerald-700 mt-1">{batchUploadResult.importedCount}</p>
+                      </div>
+                      <div className="p-3 bg-white rounded-xl border border-emerald-200 shadow-2xs">
+                        <span className="text-slate-500 font-semibold block">Zasimbitswe (Duplicates)</span>
+                        <p className="text-xl font-bold text-amber-700 mt-1">{batchUploadResult.skippedCount}</p>
+                      </div>
+                      <div className="p-3 bg-white rounded-xl border border-emerald-200 shadow-2xs col-span-2 sm:col-span-1">
+                        <span className="text-slate-500 font-semibold block">Igiteranyo cy'ubu</span>
+                        <p className="text-xl font-bold text-blue-950 mt-1">{songs.length + batchUploadResult.importedCount}</p>
+                      </div>
+                    </div>
+
+                    {batchUploadResult.skippedSongs && batchUploadResult.skippedSongs.length > 0 && (
+                      <div className="mt-2 text-xs text-slate-700">
+                        <p className="font-semibold text-slate-800 mb-1">Indirimbo zasimbutswe kuko zisanzwemo:</p>
+                        <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-600">
+                          {batchUploadResult.skippedSongs.slice(0, 5).map((sk: any, i: number) => (
+                            <li key={i}>
+                              <span className="font-bold">{sk.title}</span> ({sk.category || 'Agakiza'})
+                            </li>
+                          ))}
+                          {batchUploadResult.skippedSongs.length > 5 && (
+                            <li className="italic text-slate-500">
+                              ...n'izindi {batchUploadResult.skippedSongs.length - 5}
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Upload Input Method Selector */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl w-fit text-xs font-bold text-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => setCsvInputMethod('file')}
+                      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                        csvInputMethod === 'file'
+                          ? 'bg-white text-blue-950 shadow-2xs'
+                          : 'hover:text-slate-900'
+                      }`}
+                    >
+                      <UploadCloud className="w-3.5 h-3.5" />
+                      <span>Shyiramo Dosiye (.csv)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCsvInputMethod('paste')}
+                      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                        csvInputMethod === 'paste'
+                          ? 'bg-white text-blue-950 shadow-2xs'
+                          : 'hover:text-slate-900'
+                      }`}
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Kwandika / Komeka CSV Text</span>
+                    </button>
+                  </div>
+
+                  {/* Option A: File Dropzone */}
+                  {csvInputMethod === 'file' && (
+                    <div className="border-2 border-dashed border-slate-300 hover:border-blue-900/60 rounded-3xl p-6 sm:p-8 text-center bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                      <input
+                        type="file"
+                        accept=".csv,text/csv"
+                        id="batch-csv-file-input"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                      <label
+                        htmlFor="batch-csv-file-input"
+                        className="flex flex-col items-center justify-center cursor-pointer space-y-3"
+                      >
+                        <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-900 flex items-center justify-center shadow-xs">
+                          <UploadCloud className="w-7 h-7" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">
+                            {batchFileName ? (
+                              <span className="text-emerald-700 flex items-center gap-1.5 justify-center">
+                                <CheckCircle className="w-4 h-4" />
+                                <span>Dosiye yahiswemo: {batchFileName}</span>
+                              </span>
+                            ) : (
+                              "Kanda hano cyangwa ukurure dosiye ya .CSV"
+                            )}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Hitamo dosiye ya CSV yateguwe mu buryo bwa template
+                          </p>
+                        </div>
+                        <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-950 hover:bg-blue-900 text-white text-xs font-bold transition-colors shadow-2xs">
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{batchFileName ? "Hitamo indi dosiye" : "Hitamo Dosiye ya CSV"}</span>
+                        </span>
+                      </label>
+                    </div>
+                  )}
+
+                  {/* Option B: Raw Textarea */}
+                  {csvInputMethod === 'paste' && (
+                    <div className="space-y-3">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Komeka inyandiko ya CSV hano (Paste CSV text):
+                      </label>
+                      <textarea
+                        rows={8}
+                        value={batchCsvText}
+                        onChange={e => setBatchCsvText(e.target.value)}
+                        placeholder={`Song_Number,Title,Category,Composer,Lyrics\n1,"NGWINO TUJYANE","AGAKIZA","La Lumiere Choir","1. Ngwino tujyane iwacu aho Imana yateguriye abera...\n\nR/ Uwo yatubereye igitambo..."`}
+                        className="w-full p-3.5 rounded-2xl border border-slate-300 text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-900 bg-white"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => parseCsvText(batchCsvText)}
+                          disabled={!batchCsvText.trim() || isBatchParsing}
+                          className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-950 hover:bg-blue-900 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {isBatchParsing ? (
+                            <>
+                              <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Gusesengura...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Layers className="w-3.5 h-3.5" />
+                              <span>Sesengura CSV & Reba Imbonerahamwe (Parse & Preview)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Parsed Songs Preview Table & Actions */}
+                {parsedBatchSongs.length > 0 && (
+                  <div className="space-y-4 pt-2 border-t border-slate-200">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                          <Table className="w-4 h-4 text-blue-950" />
+                          <span>Imbonerahamwe y'Indirimbo Zabonetse (Parsed Songs Preview)</span>
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Suzuma indirimbo mbere yo kuzemeza no kuzibika mu gitabo.
+                        </p>
+                      </div>
+
+                      {/* Filter Tabs */}
+                      <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl text-[11px] font-bold text-slate-600 self-start sm:self-auto overflow-x-auto max-w-full">
+                        <button
+                          type="button"
+                          onClick={() => setBatchFilterTab('all')}
+                          className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                            batchFilterTab === 'all' ? 'bg-white text-blue-950 shadow-2xs font-bold' : ''
+                          }`}
+                        >
+                          Zose ({parsedBatchSongs.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBatchFilterTab('valid')}
+                          className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                            batchFilterTab === 'valid' ? 'bg-emerald-600 text-white shadow-2xs font-bold' : 'text-emerald-700'
+                          }`}
+                        >
+                          Ziteguye ({parsedBatchSongs.filter(s => s.isValid).length})
+                        </button>
+                        {parsedBatchSongs.some(s => !s.isValid) && (
+                          <button
+                            type="button"
+                            onClick={() => setBatchFilterTab('invalid')}
+                            className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                              batchFilterTab === 'invalid' ? 'bg-rose-600 text-white shadow-2xs font-bold' : 'text-rose-700'
+                            }`}
+                          >
+                            Zifite Amakosa ({parsedBatchSongs.filter(s => !s.isValid).length})
+                          </button>
+                        )}
+                        {parsedBatchSongs.some(s => s.isDuplicate) && (
+                          <button
+                            type="button"
+                            onClick={() => setBatchFilterTab('duplicate')}
+                            className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                              batchFilterTab === 'duplicate' ? 'bg-amber-500 text-white shadow-2xs font-bold' : 'text-amber-800'
+                            }`}
+                          >
+                            Zisanzwemo ({parsedBatchSongs.filter(s => s.isDuplicate).length})
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Preview Table */}
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200/90 shadow-2xs">
+                      <table className="w-full text-left text-xs text-slate-800">
+                        <thead className="bg-slate-50 text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200">
+                          <tr>
+                            <th className="py-2.5 px-3">#</th>
+                            <th className="py-2.5 px-3">Umutwe (Title)</th>
+                            <th className="py-2.5 px-3">Icyiciro (Category)</th>
+                            <th className="py-2.5 px-3">Uwahimbye</th>
+                            <th className="py-2.5 px-3">Amagambo (Lyrics Preview)</th>
+                            <th className="py-2.5 px-3">Imimerere (Status)</th>
+                            <th className="py-2.5 px-3 text-right">Igikorwa</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                          {parsedBatchSongs
+                            .filter(s => {
+                              if (batchFilterTab === 'valid') return s.isValid;
+                              if (batchFilterTab === 'invalid') return !s.isValid;
+                              if (batchFilterTab === 'duplicate') return s.isDuplicate;
+                              return true;
+                            })
+                            .map((s, idx) => (
+                              <tr
+                                key={idx}
+                                className={`hover:bg-slate-50/80 transition-colors ${
+                                  !s.isValid ? 'bg-rose-50/20' : s.isDuplicate ? 'bg-amber-50/20' : ''
+                                }`}
+                              >
+                                <td className="py-2.5 px-3 font-mono font-bold text-slate-500">
+                                  {s.song_number || idx + 1}
+                                </td>
+                                <td className="py-2.5 px-3 font-bold text-slate-900 max-w-[180px] truncate">
+                                  {s.title || <span className="text-rose-500 italic">Nta mutwe</span>}
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-900 uppercase">
+                                    {s.category}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-600 max-w-[140px] truncate">
+                                  {s.composer}
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500 max-w-[220px] truncate">
+                                  {s.lyrics ? s.lyrics.substring(0, 45) + '...' : <span className="text-rose-500 italic">Nta magambo</span>}
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  {!s.isValid ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 text-[10px] font-bold">
+                                      <AlertCircle className="w-3 h-3 text-rose-600" />
+                                      <span>{s.validationErrors.join(', ')}</span>
+                                    </span>
+                                  ) : s.isDuplicate ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 text-[10px] font-bold">
+                                      <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                      <span>Isanzwemo (Duplicate)</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 text-[10px] font-bold">
+                                      <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                      <span>Yiteguye</span>
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveParsedSong(idx)}
+                                    className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                                    title="Kuramo iyi ndirimbo"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Bottom Action Bar */}
+                    <div className="pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-200">
+                      <div className="text-xs text-slate-600 flex items-center gap-2">
+                        <span>Zose zatoranijwe: <strong className="text-slate-900">{parsedBatchSongs.length}</strong></span>
+                        <span>•</span>
+                        <span>Ziteguye kubikwa: <strong className="text-emerald-700">{parsedBatchSongs.filter(s => s.isValid).length}</strong></span>
+                      </div>
+
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={handleClearBatch}
+                          className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
+                        >
+                          Siba Byose (Clear)
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleExecuteBatchImport}
+                          disabled={isBatchSubmitting || parsedBatchSongs.filter(s => s.isValid).length === 0}
+                          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-blue-950 hover:bg-blue-900 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
+                        >
+                          {isBatchSubmitting ? (
+                            <>
+                              <RotateCcw className="w-4 h-4 animate-spin" />
+                              <span>Bikomeje kwinjizwa mu gitabo...</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCheck className="w-4 h-4 text-emerald-400" />
+                              <span>
+                                Injiza Indirimbo {parsedBatchSongs.filter(s => s.isValid).length} (Import Now)
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

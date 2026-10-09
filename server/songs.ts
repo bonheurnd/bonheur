@@ -132,6 +132,131 @@ export function parseSongsFromDocumentText(text: string): Array<{
   return songs;
 }
 
+/**
+ * Standard RFC 4180 CSV parser supporting multiline fields inside quotes,
+ * escaped double quotes (""), and varied delimiters.
+ */
+export function parseCSVRows(csvText: string): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = '';
+  let insideQuotes = false;
+
+  const normalized = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized[i];
+    const nextChar = normalized[i + 1];
+
+    if (insideQuotes) {
+      if (char === '"') {
+        if (nextChar === '"') {
+          currentField += '"';
+          i++; // skip escaped double quote
+        } else {
+          insideQuotes = false;
+        }
+      } else {
+        currentField += char;
+      }
+    } else {
+      if (char === '"') {
+        insideQuotes = true;
+      } else if (char === ',') {
+        currentRow.push(currentField);
+        currentField = '';
+      } else if (char === '\n') {
+        currentRow.push(currentField);
+        if (currentRow.some(col => col.trim().length > 0)) {
+          rows.push(currentRow);
+        }
+        currentRow = [];
+        currentField = '';
+      } else {
+        currentField += char;
+      }
+    }
+  }
+
+  if (currentField.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentField);
+    if (currentRow.some(col => col.trim().length > 0)) {
+      rows.push(currentRow);
+    }
+  }
+
+  return rows;
+}
+
+export function parseSongsFromCSVText(csvContent: string): Array<{
+  song_number: string;
+  title: string;
+  lyrics: string;
+  category: string;
+  composer?: string;
+  description?: string;
+  language?: string;
+  release_date?: string;
+  status?: string;
+  release_status?: string;
+  solfa_notation?: string;
+}> {
+  const rows = parseCSVRows(csvContent);
+  if (rows.length < 2) return [];
+
+  const rawHeaders = rows[0].map(h => h.trim().toLowerCase().replace(/[\s_#-]+/g, ''));
+  const findColIndex = (...candidates: string[]): number => {
+    return rawHeaders.findIndex(h => candidates.some(c => h.includes(c)));
+  };
+
+  const titleIdx = findColIndex('title', 'umutwe', 'name', 'izina');
+  const catIdx = findColIndex('category', 'icyiciro', 'cat');
+  const lyricsIdx = findColIndex('lyrics', 'amagambo', 'content', 'text');
+  const numberIdx = findColIndex('songnumber', 'number', 'nimero', 'num', 'no');
+  const composerIdx = findColIndex('composer', 'uwahimbye', 'author', 'artist');
+  const descIdx = findColIndex('description', 'ibisobanuro', 'desc', 'summary');
+  const langIdx = findColIndex('language', 'ururimi', 'lang');
+  const dateIdx = findColIndex('releasedate', 'date', 'itariki');
+  const statusIdx = findColIndex('status', 'imimerere');
+  const releaseStatusIdx = findColIndex('releasestatus', 'isomwa', 'itangazwa');
+  const solfaIdx = findColIndex('solfa', 'notation', 'amanota', 'notes');
+
+  const songs: Array<any> = [];
+
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const title = titleIdx !== -1 ? (row[titleIdx] || '').trim() : '';
+    if (!title) continue;
+
+    const category = catIdx !== -1 ? (row[catIdx] || '').trim() : 'AGAKIZA';
+    const lyrics = lyricsIdx !== -1 ? (row[lyricsIdx] || '').trim() : '';
+    const song_number = numberIdx !== -1 ? (row[numberIdx] || '').trim() : '';
+    const composer = composerIdx !== -1 ? (row[composerIdx] || '').trim() : 'La Lumiere Choir';
+    const description = descIdx !== -1 ? (row[descIdx] || '').trim() : '';
+    const language = langIdx !== -1 ? (row[langIdx] || '').trim() : 'Kinyarwanda';
+    const release_date = dateIdx !== -1 ? (row[dateIdx] || '').trim() : '';
+    const status = statusIdx !== -1 ? (row[statusIdx] || '').trim() : 'published';
+    const release_status = releaseStatusIdx !== -1 ? (row[releaseStatusIdx] || '').trim() : 'released';
+    const solfa_notation = solfaIdx !== -1 ? (row[solfaIdx] || '').trim() : '';
+
+    songs.push({
+      title,
+      category,
+      lyrics,
+      song_number,
+      composer: composer || 'La Lumiere Choir',
+      description,
+      language: language || 'Kinyarwanda',
+      release_date,
+      status: status === 'draft' ? 'draft' : 'published',
+      release_status: release_status === 'unreleased' ? 'unreleased' : 'released',
+      solfa_notation,
+    });
+  }
+
+  return songs;
+}
+
 // -------------------------------------------------------------
 // 1. GET ALL SONGS (Public & Admin with Filtering and Search)
 // -------------------------------------------------------------
@@ -635,7 +760,22 @@ songsRouter.patch('/:id/status', requireAdmin, (req: AuthRequest, res: Response)
 });
 
 // -------------------------------------------------------------
-// 10. POST: BATCH / WORD (.docx) IMPORTER (Requirement 1 & 14)
+// 10. GET: CSV TEMPLATE FOR BATCH IMPORT
+// -------------------------------------------------------------
+songsRouter.get('/csv-template', (req: Request, res: Response) => {
+  const csvHeaders = 'Song_Number,Title,Category,Composer,Description,Language,Release_Date,Status,Release_Status,Lyrics,Solfa_Notation\n';
+  const sample1 = '1,"NGWINO TUJYANE","AGAKIZA","La Lumiere Choir","Indirimbo yo guhamagarira abantu agakiza n\'urukundo rw\'Imana","Kinyarwanda","2026-01-01","published","released","1. Ngwino tujyane iwacu aho Imana yateguriye abera...\n\nR/ Uwo yatubereye igitambo...","d : r : m | f : s : l"\n';
+  const sample2 = '2,"TURI ABAGENZI","IJURU","La Lumiere Choir","Indirimbo y\'urugendo rugana mu ijuru n\'ubugingo bw\'iteka","Kinyarwanda","2026-01-01","published","released","1. Bakundwa turi abagenzi kandi turi abimukira...\n\nR/ Nkumbuye cyane kwibera i Siyoni...","m : s : d | r : f : l"\n';
+  const sample3 = '3,"TURAGUSHIMA MANA","GUSHIMA","La Lumiere Choir","Indirimbo yo gushima no guhimbaza Imana kubw\'imirimo yayo","Kinyarwanda","2026-01-01","published","released","1. Turagushima Mana turaguhimbaza mukunzi we...\n\nR/ Ntacyo twabona twakwitura mwami...","s : m : d | f : r : t"\n';
+  const csvData = csvHeaders + sample1 + sample2 + sample3;
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="indirimbo_template.csv"');
+  res.send(csvData);
+});
+
+// -------------------------------------------------------------
+// 11. POST: BATCH / CSV / WORD (.docx) IMPORTER (Requirement 1 & 14)
 // -------------------------------------------------------------
 songsRouter.post('/import', requireAdmin, upload.single('file'), async (req: AuthRequest, res: Response) => {
   try {
@@ -645,7 +785,13 @@ songsRouter.post('/import', requireAdmin, upload.single('file'), async (req: Aut
       title: string;
       lyrics: string;
       category: string;
+      composer?: string;
+      description?: string;
+      language?: string;
+      release_date?: string;
       status?: string;
+      release_status?: string;
+      solfa_notation?: string;
     }> = [];
 
     if (req.file) {
@@ -653,6 +799,9 @@ songsRouter.post('/import', requireAdmin, upload.single('file'), async (req: Aut
       if (ext === '.docx') {
         const result = await mammoth.extractRawText({ path: req.file.path });
         rawText = result.value || '';
+      } else if (ext === '.csv') {
+        const fileContent = fs.readFileSync(req.file.path, 'utf8');
+        parsedSongList = parseSongsFromCSVText(fileContent);
       } else if (ext === '.json') {
         const fileContent = fs.readFileSync(req.file.path, 'utf8');
         try {
@@ -663,7 +812,13 @@ songsRouter.post('/import', requireAdmin, upload.single('file'), async (req: Aut
               title: s.title || '',
               lyrics: s.lyrics || s.content || '',
               category: s.category || s.category_name || s.category_id || 'AGAKIZA',
+              composer: s.composer || 'La Lumiere Choir',
+              description: s.description || '',
+              language: s.language || 'Kinyarwanda',
+              release_date: s.release_date || '',
               status: s.status || 'published',
+              release_status: s.release_status || 'released',
+              solfa_notation: s.solfa_notation || '',
             }));
           }
         } catch (e) {
@@ -676,6 +831,8 @@ songsRouter.post('/import', requireAdmin, upload.single('file'), async (req: Aut
       try {
         fs.unlinkSync(req.file.path);
       } catch (e) {}
+    } else if (req.body.csv && typeof req.body.csv === 'string') {
+      parsedSongList = parseSongsFromCSVText(req.body.csv);
     } else if (req.body.text && typeof req.body.text === 'string') {
       rawText = req.body.text;
     } else if (Array.isArray(req.body.songs)) {
@@ -685,12 +842,18 @@ songsRouter.post('/import', requireAdmin, upload.single('file'), async (req: Aut
     }
 
     if (rawText && parsedSongList.length === 0) {
-      parsedSongList = parseSongsFromDocumentText(rawText);
+      // Check if rawText is CSV or document formatted text
+      if (rawText.includes(',') && (rawText.toLowerCase().includes('title') || rawText.toLowerCase().includes('umutwe'))) {
+        parsedSongList = parseSongsFromCSVText(rawText);
+      }
+      if (parsedSongList.length === 0) {
+        parsedSongList = parseSongsFromDocumentText(rawText);
+      }
     }
 
     if (parsedSongList.length === 0) {
       return res.status(400).json({
-        error: 'Nta ndirimbo zabonetse mu nyandiko (No songs found). Suzuma niba harimo ibyiciro 4 (AGAKIZA, IJURU, GUSHIMA, KWIZERA) n\'indirimbo zanditse nka: 1. UMUTWE.',
+        error: 'Nta ndirimbo zabonetse mu nyandiko (No songs found). Suzuma niba CSV yujuje ibisabwa cyangwa niba inyandiko irimo ibyiciro (AGAKIZA, IJURU, GUSHIMA, KWIZERA).',
       });
     }
 
@@ -736,24 +899,32 @@ songsRouter.post('/import', requireAdmin, upload.single('file'), async (req: Aut
           id, title, song_number, composer, category_id, release_status,
           release_date, description, cover_image_url, access_password_hash,
           status, is_deleted, created_by, display_order
-        ) VALUES (?, ?, ?, ?, ?, 'released', ?, '', '', NULL, ?, 0, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', NULL, ?, 0, ?, ?)
       `).run(
         newSongId,
         cleanTitle,
         songNumber || null,
-        'La Lumiere Choir',
+        item.composer?.trim() || 'La Lumiere Choir',
         catId,
-        new Date().toISOString().split('T')[0],
+        item.release_status === 'unreleased' ? 'unreleased' : 'released',
+        item.release_date || new Date().toISOString().split('T')[0],
+        item.description?.trim() || '',
         item.status === 'draft' ? 'draft' : 'published',
         req.user!.id,
         displayOrder
       );
 
-      if (cleanLyrics) {
+      if (cleanLyrics || item.solfa_notation) {
         db.prepare(`
-          INSERT INTO lyrics (id, song_id, content, language)
-          VALUES (?, ?, ?, 'rw')
-        `).run('lyr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), newSongId, cleanLyrics);
+          INSERT INTO lyrics (id, song_id, content, solfa_notation, language)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(
+          'lyr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+          newSongId,
+          cleanLyrics,
+          item.solfa_notation?.trim() || null,
+          item.language || 'rw'
+        );
       }
 
       importedSongs.push({
