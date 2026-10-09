@@ -261,48 +261,36 @@ export const AdminDonationSettingsTab: React.FC<AdminDonationSettingsTabProps> =
     });
   }, [donations, statusFilter, providerFilter, searchQuery]);
 
-  // Export CSV
-  const handleExportCSV = () => {
-    if (filteredDonations.length === 0) return;
-    const headers = [
-      'Reference',
-      'Gateway Ref',
-      'Donor Name',
-      'Donor Phone',
-      'Donor Email',
-      'Amount (RWF)',
-      'Provider',
-      'Purpose',
-      'Status',
-      'Created Date',
-      'Completed Date',
-    ];
+  // Export CSV using production server-side export endpoint
+  const handleExportCSV = async () => {
+    try {
+      const token = localStorage.getItem('lalumiere_token') || '';
+      const params = new URLSearchParams();
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (providerFilter !== 'all') params.set('provider', providerFilter);
+      if (searchQuery.trim()) params.set('search', searchQuery.trim());
 
-    const rows = filteredDonations.map(d => [
-      d.internal_reference,
-      d.provider_reference || '',
-      `"${(d.donor_name || '').replace(/"/g, '""')}"`,
-      d.donor_phone,
-      d.donor_email || d.user_email || '',
-      d.amount,
-      d.provider_slug,
-      `"${(d.donation_purpose || '').replace(/"/g, '""')}"`,
-      d.status,
-      d.created_at,
-      d.completed_at || '',
-    ]);
+      const res = await fetch(`/api/admin/export/donations?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    const csvContent =
-      'data:text/csv;charset=utf-8,\uFEFF' +
-      [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      if (!res.ok) {
+        throw new Error('Export failed');
+      }
 
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `lalumiere_donations_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const filenameDate = new Date().toISOString().split('T')[0];
+      link.setAttribute('download', `la-lumiere-donations-${filenameDate}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Error exporting donations CSV:', err);
+    }
   };
 
   const copyToClipboard = (text: string) => {

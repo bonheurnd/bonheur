@@ -553,9 +553,15 @@ export function verifyToken(token: string): AuthenticatedUser | null {
 }
 
 export function optionalAuth(req: AuthRequest, res: Response, next: NextFunction) {
+  let token: string | null = null;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
+    token = authHeader.substring(7);
+  } else if (typeof req.query.token === 'string' && req.query.token.trim()) {
+    token = req.query.token.trim();
+  }
+
+  if (token) {
     const decoded = verifyToken(token);
     if (decoded) {
       req.user = decoded;
@@ -565,12 +571,18 @@ export function optionalAuth(req: AuthRequest, res: Response, next: NextFunction
 }
 
 export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+  let token: string | null = null;
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  } else if (typeof req.query.token === 'string' && req.query.token.trim()) {
+    token = req.query.token.trim();
+  }
+
+  if (!token) {
     return res.status(401).json({ error: 'Ugomba kwinjira muri konti yawe (Authentication required)' });
   }
 
-  const token = authHeader.substring(7);
   const decoded = verifyToken(token);
   if (!decoded) {
     return res.status(401).json({ error: 'Igihe cyo kwinjira cyarangiye cyangwa umwirondoro si wo (Invalid or expired token)' });

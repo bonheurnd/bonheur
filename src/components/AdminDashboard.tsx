@@ -47,6 +47,7 @@ import { AdminLogsTab } from './admin/AdminLogsTab';
 import { AdminContactTab } from './admin/AdminContactTab';
 import { AdminSocialMediaTab } from './admin/AdminSocialMediaTab';
 import { AdminDonationSettingsTab } from './admin/AdminDonationSettingsTab';
+import { AdminExportTab } from './admin/AdminExportTab';
 import { safeFetchJson } from '../utils/api';
 
 interface AdminDashboardProps {
@@ -76,6 +77,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'branding'
     | 'donations'
     | 'payments'
+    | 'export'
   >('overview');
 
   // Stats & Metrics
@@ -312,6 +314,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'branding', label: 'Ibirango & Logo', icon: Palette },
           { id: 'donations', label: 'Inkunga (MoMo)', icon: HeartHandshake },
           { id: 'payments', label: 'Gateway', icon: Settings },
+          { id: 'export', label: 'Kwohereza (CSV Export)', icon: Download },
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -669,6 +672,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onRefresh={loadDashboardData}
         />
       )}
+
+      {/* 10. DATA EXPORT / CSV EXPORT CMS */}
+      {activeTab === 'export' && <AdminExportTab />}
     </div>
   );
 };

@@ -38,6 +38,7 @@ import { initiateRwandaPayment, verifyPaymentTransaction, validateRwandaPhoneNum
 import { RwandaPaymentGatewayService, validateAndNormalizeRwandaPhone } from './server/rwandaPaymentGateway.js';
 import { paymentsRouter } from './server/payments.js';
 import { sendPasswordResetEmail, isEmailServiceConfigured, getEmailConfig } from './server/email.js';
+import { exportRouter } from './server/export.js';
 // @ts-ignore
 import mammoth from 'mammoth';
 
@@ -4575,52 +4576,15 @@ app.get('/api/admin/members/stats', requireAdmin, (req: AuthRequest, res) => {
   }
 });
 
-// Member List CSV Export for local record-keeping
+// -------------------------------------------------------------
+// SECURE CSV DATA EXPORT APIS (Full-featured with UTF-8 BOM, Sanitization, Date Filters)
+// -------------------------------------------------------------
+app.use('/api/admin/export', exportRouter);
+
+// Backward-compatible Member List CSV Export
 app.get('/api/admin/members/export', requireAdmin, (req: AuthRequest, res) => {
-  try {
-    const { search, role, status } = req.query;
-    let query = `
-      SELECT id, name, email, phone, role, choir_voice, choir_role, is_disabled, created_at
-      FROM users
-      WHERE 1=1
-    `;
-    const params: any[] = [];
-    if (role && role !== 'all') {
-      query += ` AND role = ?`;
-      params.push(role);
-    }
-    if (status === 'active') {
-      query += ` AND (is_disabled = 0 OR is_disabled IS NULL)`;
-    } else if (status === 'disabled') {
-      query += ` AND is_disabled = 1`;
-    }
-    if (search && typeof search === 'string' && search.trim()) {
-      const term = `%${search.trim()}%`;
-      query += ` AND (name LIKE ? OR email LIKE ? OR phone LIKE ?)`;
-      params.push(term, term, term);
-    }
-    query += ` ORDER BY name ASC`;
-    const users = db.prepare(query).all(...params) as any[];
-
-    const headers = ['Izina (Full Name)', 'Imeli (Email)', 'Telefone (Phone)', 'Inshingano (Role)', 'Ijwi (Voice)', 'Umwanya (Choir Role)', 'Imiterere (Status)', 'Itariki yo Kwiyandikisha'];
-    const rows = users.map(u => [
-      `"${(u.name || '').replace(/"/g, '""')}"`,
-      `"${(u.email || '').replace(/"/g, '""')}"`,
-      `"${(u.phone || '').replace(/"/g, '""')}"`,
-      u.role,
-      u.choir_voice || 'N/A',
-      `"${(u.choir_role || '').replace(/"/g, '""')}"`,
-      u.is_disabled ? 'Yahagaritswe (Disabled)' : 'Irakora (Active)',
-      u.created_at || ''
-    ]);
-
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="la_lumiere_members_' + Date.now() + '.csv"');
-    res.send(csvContent);
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to export members to CSV' });
-  }
+  req.url = '/members' + (req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '');
+  exportRouter(req, res);
 });
 
 // Member Activity Log (Last 10 user actions)
@@ -4803,39 +4767,10 @@ app.get('/api/admin/donations', requireAdmin, (req: AuthRequest, res) => {
   }
 });
 
-// CSV Export for donations
+// Backward-compatible CSV Export for donations
 app.get('/api/admin/donations/export', requireAdmin, (req: AuthRequest, res) => {
-  try {
-    const donations = db.prepare(`
-      SELECT pt.internal_reference, pt.provider_reference, pt.donor_name,
-             pt.amount, pt.currency, pt.provider_slug, pt.donation_purpose,
-             pt.status, pt.created_at, pt.completed_at
-      FROM payment_transactions pt
-      ORDER BY pt.created_at DESC
-    `).all() as any[];
-
-    const headers = ['Reference', 'Provider Ref', 'Donor Name', 'Amount (RWF)', 'Currency', 'Payment Method', 'Purpose', 'Status', 'Date', 'Completed Date'];
-    const rows = donations.map(d => [
-      d.internal_reference,
-      d.provider_reference || '',
-      `"${(d.donor_name || '').replace(/"/g, '""')}"`,
-      d.amount,
-      d.currency,
-      d.provider_slug,
-      `"${(d.donation_purpose || '').replace(/"/g, '""')}"`,
-      d.status,
-      d.created_at,
-      d.completed_at || ''
-    ]);
-
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="la_lumiere_donations_' + Date.now() + '.csv"');
-    res.send(csvContent);
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to export donations' });
-  }
+  req.url = '/donations' + (req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '');
+  exportRouter(req, res);
 });
 
 // Admin Branding Management

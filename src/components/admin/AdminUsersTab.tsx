@@ -82,26 +82,36 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     });
   }, [users, searchQuery, roleFilter, statusFilter]);
 
-  // Export filtered member list to CSV file
-  const handleDownloadCsv = () => {
-    const headers = ['Amazina (Full Name)', 'Imeyili (Email)', 'Telefone (Phone)', 'Inshingano (Role)', 'Imiterere (Status)', 'Itariki'];
-    const rows = filteredUsers.map(u => [
-      `"${(u.full_name || '').replace(/"/g, '""')}"`,
-      `"${(u.email || '').replace(/"/g, '""')}"`,
-      `"${(u.phone || '').replace(/"/g, '""')}"`,
-      u.role,
-      u.is_disabled ? 'Yahagaritswe (Disabled)' : 'Irakora (Active)',
-      u.created_at || ''
-    ]);
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `la_lumiere_members_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // Export filtered member list to CSV file using production server-side export endpoint
+  const handleDownloadCsv = async () => {
+    try {
+      const token = localStorage.getItem('lalumiere_token') || '';
+      const params = new URLSearchParams();
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (roleFilter !== 'all') params.set('role', roleFilter);
+      if (searchQuery.trim()) params.set('search', searchQuery.trim());
+
+      const res = await fetch(`/api/admin/export/members?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        throw new Error('Export failed');
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const filenameDate = new Date().toISOString().split('T')[0];
+      link.setAttribute('download', `la-lumiere-members-${filenameDate}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Error downloading CSV:', err);
+    }
   };
 
   // Update Role

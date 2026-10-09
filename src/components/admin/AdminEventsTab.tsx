@@ -269,22 +269,54 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({ onRefreshOvervie
 
     const headers = ['Amazina (Full Name)', 'Email', 'Telefoni (Phone)', 'Ijwi rya Korali (Voice)', 'Urwego (Role)', 'Itariki yo Kwiyandikisha'];
     const rows = interestedUsersList.map(u => [
-      `"${u.name || ''}"`,
-      `"${u.email || ''}"`,
-      `"${u.phone || ''}"`,
-      `"${u.choir_voice || ''}"`,
-      `"${u.role || ''}"`,
-      `"${u.created_at || ''}"`,
+      `"${(u.name || '').replace(/"/g, '""')}"`,
+      `"${(u.email || '').replace(/"/g, '""')}"`,
+      `"'${(u.phone || '').replace(/"/g, '""')}"`,
+      `"${(u.choir_voice || '').replace(/"/g, '""')}"`,
+      `"${(u.role || '').replace(/"/g, '""')}"`,
+      `"${(u.created_at || '').replace(/"/g, '""')}"`,
     ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Abitabiriye_${viewInterestedEvent.title.replace(/[^a-zA-Z0-9]/g, '_')}.csv`);
+    link.href = url;
+    link.setAttribute('download', `la-lumiere-abitabiriye-${viewInterestedEvent.title.replace(/[^a-zA-Z0-9]/g, '_')}.csv`);
     document.body.appendChild(link);
     link.click();
+    URL.revokeObjectURL(url);
     document.body.removeChild(link);
+  };
+
+  // Export Filtered Events List to CSV
+  const handleExportEventsCsv = async () => {
+    try {
+      const token = localStorage.getItem('lalumiere_token') || '';
+      const params = new URLSearchParams();
+      if (categoryFilter !== 'all') params.set('category', categoryFilter);
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (searchQuery.trim()) params.set('search', searchQuery.trim());
+
+      const res = await fetch(`/api/admin/export/events?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) throw new Error('Export failed');
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const filenameDate = new Date().toISOString().split('T')[0];
+      link.setAttribute('download', `la-lumiere-events-${filenameDate}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Failed to export events to CSV:', err);
+    }
   };
 
   // Handle Event Poster Image Upload
@@ -366,6 +398,15 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({ onRefreshOvervie
               title="Vugurura (Refresh)"
             >
               <RefreshCw className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={handleExportEventsCsv}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              title="Gukuramo Ibikorwa muri CSV"
+            >
+              <Download className="w-3.5 h-3.5 text-blue-900" />
+              <span>Export CSV</span>
             </button>
 
             <button

@@ -730,6 +730,29 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
     });
   }, [songs, deleteSearch, deleteCategoryFilter]);
 
+  // Export Complete Songbook Catalog to CSV
+  const handleExportSongsCsv = async () => {
+    try {
+      const token = localStorage.getItem('lalumiere_token') || '';
+      const res = await fetch('/api/admin/export/songs', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const filenameDate = new Date().toISOString().split('T')[0];
+      link.setAttribute('download', `la-lumiere-songs-${filenameDate}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Error exporting songs CSV:', err);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Banner / Heading */}
@@ -796,6 +819,15 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Siba / Garura (Delete Song)</span>
+          </button>
+
+          <button
+            onClick={handleExportSongsCsv}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 hover:bg-white/80 transition-all cursor-pointer border border-transparent hover:border-slate-200"
+            title="Gukuramo urutonde rw'indirimbo zose muri dosiye ya CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-blue-900" />
+            <span>Export CSV</span>
           </button>
         </div>
       </div>

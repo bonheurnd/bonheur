@@ -17,6 +17,8 @@ import {
   FileCheck,
   PhoneCall,
   Share2,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { AdminMetrics, ActivityLog } from '../../types';
 
@@ -129,6 +131,16 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
               <Share2 className="w-4 h-4 text-amber-300" />
             </div>
             <span>Imbuga Nkoranyambaga</span>
+          </button>
+
+          <button
+            onClick={() => onNavigateTab('export')}
+            className="p-3 bg-emerald-50/70 hover:bg-emerald-100 text-emerald-950 rounded-2xl text-xs font-bold flex items-center gap-2 border border-emerald-200/70 transition-colors text-left col-span-2 sm:col-span-1"
+          >
+            <div className="w-7 h-7 rounded-xl bg-emerald-800 text-white flex items-center justify-center shrink-0">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+            </div>
+            <span>Kwohereza CSV (Data Export)</span>
           </button>
         </div>
       </div>
