@@ -4582,9 +4582,9 @@ app.get('/api/admin/members/stats', requireAdmin, (req: AuthRequest, res) => {
 app.use('/api/admin/export', exportRouter);
 
 // Backward-compatible Member List CSV Export
-app.get('/api/admin/members/export', requireAdmin, (req: AuthRequest, res) => {
+app.get('/api/admin/members/export', requireAdmin, (req: AuthRequest, res, next) => {
   req.url = '/members' + (req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '');
-  exportRouter(req, res);
+  exportRouter(req, res, next);
 });
 
 // Member Activity Log (Last 10 user actions)
@@ -4768,9 +4768,9 @@ app.get('/api/admin/donations', requireAdmin, (req: AuthRequest, res) => {
 });
 
 // Backward-compatible CSV Export for donations
-app.get('/api/admin/donations/export', requireAdmin, (req: AuthRequest, res) => {
+app.get('/api/admin/donations/export', requireAdmin, (req: AuthRequest, res, next) => {
   req.url = '/donations' + (req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '');
-  exportRouter(req, res);
+  exportRouter(req, res, next);
 });
 
 // Admin Branding Management
