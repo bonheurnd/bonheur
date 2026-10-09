@@ -338,6 +338,7 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
       setAddForm(DEFAULT_FORM_DATA);
       setAddValidationErrors({});
       onRefresh();
+      window.dispatchEvent(new CustomEvent('songs_updated', { detail: { action: 'add', song: response.data || addForm } }));
     } catch (err: any) {
       setAddError(err.message || 'Habaye ikosa mu kongeramo indirimbo.');
     } finally {
@@ -537,6 +538,7 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
       setBatchUploadResult(resData);
       setBatchSuccess(`Kwinjiza byarangiye! Hashyizwemo indirimbo ${resData.importedCount || 0}, hasimbutswe ${resData.skippedCount || 0} zisanzwemo.`);
       onRefresh();
+      window.dispatchEvent(new CustomEvent('songs_updated', { detail: { action: 'batch_import', count: resData.importedCount } }));
     } catch (err: any) {
       setBatchError(err.message || 'Habaye ikosa mu kwinjiza indirimbo kuri CSV.');
     } finally {
@@ -617,6 +619,7 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
       setEditValidationErrors({});
       onRefresh();
       setSelectedSongForEdit(prev => (prev ? { ...prev, ...editForm } : null));
+      window.dispatchEvent(new CustomEvent('songs_updated', { detail: { action: 'edit', songId: selectedSongForEdit.id } }));
     } catch (err: any) {
       setEditError(err.message || 'Habaye ikosa mu kuvugurura.');
     } finally {
@@ -657,6 +660,7 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
       });
       setDeleteModalSong(null);
       onRefresh();
+      window.dispatchEvent(new CustomEvent('songs_updated', { detail: { action: 'delete' } }));
     } catch (err: any) {
       setDeleteFeedback({
         type: 'error',
@@ -691,6 +695,7 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
         msg: `Indirimbo "${title}" yagaruwe neza mu muzingo w'izikora!`,
       });
       onRefresh();
+      window.dispatchEvent(new CustomEvent('songs_updated', { detail: { action: 'restore', songId } }));
     } catch (err: any) {
       setDeleteFeedback({
         type: 'error',

@@ -172,6 +172,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   useEffect(() => {
     if (isAdmin) {
       loadDashboardData();
+
+      const handleSongsUpdated = () => {
+        loadDashboardData();
+      };
+
+      window.addEventListener('songs_updated', handleSongsUpdated);
+      return () => {
+        window.removeEventListener('songs_updated', handleSongsUpdated);
+      };
     }
   }, [isAdmin]);
 

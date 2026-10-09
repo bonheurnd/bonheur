@@ -158,6 +158,29 @@ export const SongbookScreen: React.FC<SongbookScreenProps> = ({
 
   useEffect(() => {
     fetchCategories();
+
+    const handleSongsUpdated = () => {
+      fetchSongs();
+      fetchCategories();
+    };
+
+    window.addEventListener('songs_updated', handleSongsUpdated);
+    window.addEventListener('focus', handleSongsUpdated);
+
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/events/stream');
+      eventSource.addEventListener('songs_updated', handleSongsUpdated);
+      eventSource.addEventListener('song_added', handleSongsUpdated);
+    } catch {
+      // EventSource fallback
+    }
+
+    return () => {
+      window.removeEventListener('songs_updated', handleSongsUpdated);
+      window.removeEventListener('focus', handleSongsUpdated);
+      if (eventSource) eventSource.close();
+    };
   }, []);
 
   useEffect(() => {

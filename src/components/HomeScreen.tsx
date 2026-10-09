@@ -132,7 +132,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         setIsLoading(false);
       }
     };
+
     loadHomeData();
+
+    // Auto-update when songs are added, imported, or updated
+    const handleSongsUpdated = () => {
+      loadHomeData();
+    };
+
+    window.addEventListener('songs_updated', handleSongsUpdated);
+    window.addEventListener('focus', handleSongsUpdated);
+
+    // Listen for Server-Sent Events (SSE) for multi-device/tab real-time updates
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/events/stream');
+      eventSource.addEventListener('songs_updated', handleSongsUpdated);
+      eventSource.addEventListener('song_added', handleSongsUpdated);
+    } catch {
+      // EventSource fallback
+    }
+
+    return () => {
+      window.removeEventListener('songs_updated', handleSongsUpdated);
+      window.removeEventListener('focus', handleSongsUpdated);
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
   }, []);
 
   // Live search by title or song number
@@ -237,6 +264,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     },
   };
 
+  // Dynamic welcome message and live song count that updates automatically with newly added/imported songs
+  const liveSongCount = songs.length > 0 ? songs.length : (choirInfo.songs_badge_text || '92');
+  const displayWelcomeMessage = React.useMemo(() => {
+    const rawMsg = choirInfo.welcome_message || "Igitabo cy'Indirimbo 92 zo Guhimbaza no Gusingiza Imana muri Korali La Lumiere.";
+    if (songs.length > 0 && /\b\d+\s+zo\b/i.test(rawMsg)) {
+      return rawMsg.replace(/\b\d+\s+zo\b/i, `${songs.length} zo`);
+    }
+    return rawMsg;
+  }, [choirInfo.welcome_message, songs.length]);
+
   return (
     <div className="pb-24 space-y-6">
       {/* Hero Welcome Banner */}
@@ -255,7 +292,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </h1>
 
           <p className="mt-2 text-sm sm:text-base text-slate-200 font-normal sm:font-medium leading-relaxed tracking-wide drop-shadow-xs max-w-md mx-auto">
-            {choirInfo.welcome_message || "Igitabo cy'Indirimbo 92 zo Guhimbaza no Gusingiza Imana muri Korali La Lumiere."}
+            {displayWelcomeMessage}
           </p>
 
           <p className="mt-1 text-xs text-amber-300/90 font-semibold italic">
@@ -278,10 +315,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5 w-full">
             <button
               onClick={() => onNavigateToTab('songs')}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-bold text-xs shadow-lg transition-transform active:scale-95"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-bold text-xs shadow-lg transition-transform active:scale-95 cursor-pointer"
             >
               <BookOpen className="w-4 h-4" />
-              <span>Indirimbo (92 Songs)</span>
+              <span>Indirimbo ({songs.length > 0 ? `${songs.length} Songs` : (choirInfo.songs_badge_text ? `${choirInfo.songs_badge_text} Songs` : '92 Songs')})</span>
             </button>
 
             <button
@@ -316,7 +353,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </button>
             ) : (
               <span className="absolute right-3 text-[10px] sm:text-[11px] font-bold text-blue-950 bg-amber-400/25 border border-amber-400/50 px-2 py-0.5 rounded-full shadow-2xs font-mono tracking-tight flex items-center gap-1">
-                {choirInfo.songs_badge_text || (songs.length > 0 ? `${songs.length}` : '92')}
+                {songs.length > 0 ? `${songs.length}` : (choirInfo.songs_badge_text || '92')}
               </span>
             )}
           </div>
