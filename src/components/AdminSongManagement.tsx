@@ -35,23 +35,93 @@ interface SongFormData {
   category_id: string;
   release_status: 'released' | 'unreleased';
   status: 'published' | 'draft';
-  lyrics: string;
-  solfa_notation: string;
+  release_date: string;
   description: string;
   language: string;
+  lyrics: string;
+  solfa_notation: string;
 }
 
 const DEFAULT_FORM_DATA: SongFormData = {
   title: '',
   song_number: '',
-  composer: '',
+  composer: 'La Lumiere Choir',
   category_id: 'cat_agakiza',
   release_status: 'released',
   status: 'published',
-  lyrics: '',
-  solfa_notation: '',
+  release_date: new Date().toISOString().split('T')[0],
   description: '',
   language: 'Kinyarwanda',
+  lyrics: '',
+  solfa_notation: '',
+};
+
+interface FormValidationResult {
+  isValid: boolean;
+  errors: Partial<Record<keyof SongFormData, string>>;
+  missingFields: string[];
+}
+
+const validateSongFormData = (form: SongFormData): FormValidationResult => {
+  const errors: Partial<Record<keyof SongFormData, string>> = {};
+  const missingFields: string[] = [];
+
+  if (!form.title.trim()) {
+    errors.title = "Umutwe w'indirimbo urakenewe (Title is required)";
+    missingFields.push("Umutwe w'indirimbo (Title)");
+  }
+
+  if (!form.category_id.trim()) {
+    errors.category_id = "Icyiciro cy'indirimbo kigomba guhitwamo (Category is required)";
+    missingFields.push("Icyiciro (Category)");
+  }
+
+  if (!form.lyrics.trim()) {
+    errors.lyrics = "Amagambo y'indirimbo arakenewe (Lyrics are required)";
+    missingFields.push("Amagambo y'indirimbo (Lyrics)");
+  }
+
+  // Metadata field validations
+  if (!form.song_number.trim()) {
+    errors.song_number = "Nimero y'indirimbo irakenewe (Song number is required)";
+    missingFields.push("Nimero (Song #)");
+  }
+
+  if (!form.composer.trim()) {
+    errors.composer = "Uwahimbye indirimbo akenewe (Composer is required)";
+    missingFields.push("Uwahimbye (Composer)");
+  }
+
+  if (!form.description.trim()) {
+    errors.description = "Ibisobanuro by'indirimbo birakenewe (Description is required)";
+    missingFields.push("Ibisobanuro (Description)");
+  }
+
+  if (!form.language.trim()) {
+    errors.language = "Ururimi rw'indirimbo rugomba kugaragazwa (Language is required)";
+    missingFields.push("Ururimi (Language)");
+  }
+
+  if (!form.release_date.trim()) {
+    errors.release_date = "Itariki yo gusohoka irakenewe (Release date is required)";
+    missingFields.push("Itariki yo gusohoka (Release Date)");
+  }
+
+  if (!form.status) {
+    errors.status = "Uko ifashwe (Status) kugomba guhitwamo";
+    missingFields.push("Status");
+  }
+
+  if (!form.release_status) {
+    errors.release_status = "Isomwa (Release status) rigomba guhitwamo";
+    missingFields.push("Release Status");
+  }
+
+  return {
+    isValid: missingFields.length === 0,
+    errors,
+    missingFields,
+  };
 };
 
 const DEFAULT_CATEGORIES: SongCategory[] = [
@@ -76,6 +146,7 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState('');
+  const [addValidationErrors, setAddValidationErrors] = useState<Partial<Record<keyof SongFormData, string>>>({});
 
   // Edit Tab State
   const [selectedSongForEdit, setSelectedSongForEdit] = useState<Song | null>(null);
@@ -85,6 +156,7 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
   const [isUpdating, setIsUpdating] = useState(false);
   const [editError, setEditError] = useState('');
   const [editSuccess, setEditSuccess] = useState('');
+  const [editValidationErrors, setEditValidationErrors] = useState<Partial<Record<keyof SongFormData, string>>>({});
 
   // Delete Tab State
   const [deleteSearch, setDeleteSearch] = useState('');
@@ -138,14 +210,14 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
     setAddError('');
     setAddSuccess('');
 
-    if (!addForm.title.trim()) {
-      setAddError('Umutwe w\'indirimbo (Title) urakenewe.');
+    // Comprehensive validation ensuring all fields are present before submission
+    const validation = validateSongFormData(addForm);
+    if (!validation.isValid) {
+      setAddValidationErrors(validation.errors);
+      setAddError(`Uzuza imyanya yose isabwa mbere yo kubika: ${validation.missingFields.join(', ')}.`);
       return;
     }
-    if (!addForm.lyrics.trim()) {
-      setAddError('Amagambo y\'indirimbo (Lyrics) arakenewe.');
-      return;
-    }
+    setAddValidationErrors({});
 
     try {
       setIsAdding(true);
@@ -165,6 +237,7 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
 
       setAddSuccess(`Indirimbo "${response.data?.title || addForm.title}" yongewemo neza!`);
       setAddForm(DEFAULT_FORM_DATA);
+      setAddValidationErrors({});
       onRefresh();
     } catch (err: any) {
       setAddError(err.message || 'Habaye ikosa mu kongeramo indirimbo.');
@@ -180,17 +253,19 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
     setSelectedSongForEdit(song);
     setEditError('');
     setEditSuccess('');
+    setEditValidationErrors({});
     setEditForm({
       title: song.title || '',
       song_number: song.song_number || '',
-      composer: song.composer || '',
+      composer: song.composer || 'La Lumiere Choir',
       category_id: song.category_id || 'cat_agakiza',
       release_status: song.release_status || 'released',
       status: song.status || 'published',
+      release_date: song.release_date || new Date().toISOString().split('T')[0],
+      description: song.description || `Indirimbo y'ubutumwa bwiza ya ${song.composer || 'La Lumiere Choir'}.`,
+      language: song.language || 'Kinyarwanda',
       lyrics: song.lyrics || '',
       solfa_notation: song.solfa_notation || '',
-      description: song.description || '',
-      language: song.language || 'Kinyarwanda',
     });
   };
 
@@ -201,14 +276,14 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
     setEditError('');
     setEditSuccess('');
 
-    if (!editForm.title.trim()) {
-      setEditError('Umutwe w\'indirimbo urakenewe.');
+    // Comprehensive validation ensuring all fields are present before submission
+    const validation = validateSongFormData(editForm);
+    if (!validation.isValid) {
+      setEditValidationErrors(validation.errors);
+      setEditError(`Uzuza imyanya yose isabwa mbere yo kuvugurura: ${validation.missingFields.join(', ')}.`);
       return;
     }
-    if (!editForm.lyrics.trim()) {
-      setEditError('Amagambo y\'indirimbo arakenewe.');
-      return;
-    }
+    setEditValidationErrors({});
 
     try {
       setIsUpdating(true);
@@ -227,6 +302,7 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
       }
 
       setEditSuccess(`Indirimbo "${editForm.title}" yavuguruwe neza!`);
+      setEditValidationErrors({});
       onRefresh();
       setSelectedSongForEdit(prev => (prev ? { ...prev, ...editForm } : null));
     } catch (err: any) {
@@ -543,129 +619,313 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
               </div>
             )}
 
-            <form onSubmit={handleAddSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="sm:col-span-2">
+            <form onSubmit={handleAddSubmit} className="space-y-6">
+              {/* SECTION 1: TITLE & CATEGORY */}
+              <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-4">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1 border-b border-slate-200">
+                  <BookOpen className="w-4 h-4 text-blue-900" />
+                  <span>1. Umutwe n'Icyiciro (Title & Category)</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Umutwe w'Indirimbo (Title) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.title}
+                      onChange={e => {
+                        setAddForm({ ...addForm, title: e.target.value });
+                        if (addValidationErrors.title) {
+                          setAddValidationErrors(prev => ({ ...prev, title: undefined }));
+                        }
+                      }}
+                      placeholder="Urugero: NGWINO TUJYANE"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
+                        addValidationErrors.title
+                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600 focus:ring-1 focus:ring-rose-200'
+                          : 'border-slate-300 focus:border-blue-900 focus:ring-1 focus:ring-blue-900'
+                      }`}
+                    />
+                    {addValidationErrors.title && (
+                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>{addValidationErrors.title}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Icyiciro (Category) <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={addForm.category_id}
+                      onChange={e => {
+                        setAddForm({ ...addForm, category_id: e.target.value });
+                        if (addValidationErrors.category_id) {
+                          setAddValidationErrors(prev => ({ ...prev, category_id: undefined }));
+                        }
+                      }}
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium bg-white transition-colors ${
+                        addValidationErrors.category_id
+                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                          : 'border-slate-300 focus:border-blue-900 focus:ring-1 focus:ring-blue-900'
+                      }`}
+                    >
+                      {resolvedCategories.map(cat => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name} ({cat.slug})
+                        </option>
+                      ))}
+                    </select>
+                    {addValidationErrors.category_id && (
+                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>{addValidationErrors.category_id}</span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 2: METADATA */}
+              <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-4">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1 border-b border-slate-200">
+                  <Sparkles className="w-4 h-4 text-blue-900" />
+                  <span>2. Amakuru y'Inyongera (Song Metadata)</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Nimero (Song #) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.song_number}
+                      onChange={e => {
+                        setAddForm({ ...addForm, song_number: e.target.value });
+                        if (addValidationErrors.song_number) {
+                          setAddValidationErrors(prev => ({ ...prev, song_number: undefined }));
+                        }
+                      }}
+                      placeholder="Urugero: 01"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
+                        addValidationErrors.song_number
+                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                          : 'border-slate-300 focus:border-blue-900'
+                      }`}
+                    />
+                    {addValidationErrors.song_number && (
+                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>{addValidationErrors.song_number}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Uwahimbye (Composer) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.composer}
+                      onChange={e => {
+                        setAddForm({ ...addForm, composer: e.target.value });
+                        if (addValidationErrors.composer) {
+                          setAddValidationErrors(prev => ({ ...prev, composer: undefined }));
+                        }
+                      }}
+                      placeholder="La Lumiere Choir"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
+                        addValidationErrors.composer
+                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                          : 'border-slate-300 focus:border-blue-900'
+                      }`}
+                    />
+                    {addValidationErrors.composer && (
+                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>{addValidationErrors.composer}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Ururimi (Language) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.language}
+                      onChange={e => {
+                        setAddForm({ ...addForm, language: e.target.value });
+                        if (addValidationErrors.language) {
+                          setAddValidationErrors(prev => ({ ...prev, language: undefined }));
+                        }
+                      }}
+                      placeholder="Kinyarwanda"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
+                        addValidationErrors.language
+                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                          : 'border-slate-300 focus:border-blue-900'
+                      }`}
+                    />
+                    {addValidationErrors.language && (
+                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>{addValidationErrors.language}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Itariki (Release Date) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={addForm.release_date}
+                      onChange={e => {
+                        setAddForm({ ...addForm, release_date: e.target.value });
+                        if (addValidationErrors.release_date) {
+                          setAddValidationErrors(prev => ({ ...prev, release_date: undefined }));
+                        }
+                      }}
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium bg-white transition-colors ${
+                        addValidationErrors.release_date
+                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                          : 'border-slate-300 focus:border-blue-900'
+                      }`}
+                    />
+                    {addValidationErrors.release_date && (
+                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>{addValidationErrors.release_date}</span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Uko ifashwe (Status) <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={addForm.status}
+                      onChange={e => setAddForm({ ...addForm, status: e.target.value as any })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 bg-white"
+                    >
+                      <option value="published">Published (Irakora / Iboneka hose)</option>
+                      <option value="draft">Draft (Inyandiko y'agateganyo)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Isomwa / Itangazwa (Release) <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={addForm.release_status}
+                      onChange={e => setAddForm({ ...addForm, release_status: e.target.value as any })}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 bg-white"
+                    >
+                      <option value="released">Released (Yarasohotse)</option>
+                      <option value="unreleased">Unreleased (Itegerejwe)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Umutwe w'Indirimbo (Title) *
+                    Ibisobanuro by'Indirimbo (Description / Summary) <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
-                    required
-                    value={addForm.title}
-                    onChange={e => setAddForm({ ...addForm, title: e.target.value })}
-                    placeholder="Urugero: NGWINO TUJYANE"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-900 font-medium"
+                    value={addForm.description}
+                    onChange={e => {
+                      setAddForm({ ...addForm, description: e.target.value });
+                      if (addValidationErrors.description) {
+                        setAddValidationErrors(prev => ({ ...prev, description: undefined }));
+                      }
+                    }}
+                    placeholder="Urugero: Indirimbo yo guhimbaza no gushima Imana kubw'urukundo rwayo..."
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-xs text-slate-900 focus:outline-none font-medium transition-colors ${
+                      addValidationErrors.description
+                        ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                        : 'border-slate-300 focus:border-blue-900'
+                    }`}
                   />
+                  {addValidationErrors.description && (
+                    <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      <span>{addValidationErrors.description}</span>
+                    </p>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Nimero (Song #)
+                    Solfa Notation (Notes za Muzika - Optional)
                   </label>
-                  <input
-                    type="text"
-                    value={addForm.song_number}
-                    onChange={e => setAddForm({ ...addForm, song_number: e.target.value })}
-                    placeholder="01"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-900 font-medium"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Icyiciro (Category) *
-                  </label>
-                  <select
-                    value={addForm.category_id}
-                    onChange={e => setAddForm({ ...addForm, category_id: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-900 font-medium bg-white"
-                  >
-                    {resolvedCategories.map(cat => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name} ({cat.slug})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Uwahimbye (Composer / Author)
-                  </label>
-                  <input
-                    type="text"
-                    value={addForm.composer}
-                    onChange={e => setAddForm({ ...addForm, composer: e.target.value })}
-                    placeholder="La Lumiere Choir"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-900 font-medium"
+                  <textarea
+                    rows={2}
+                    value={addForm.solfa_notation}
+                    onChange={e => setAddForm({ ...addForm, solfa_notation: e.target.value })}
+                    placeholder="d : r : m | f : s : l : d'..."
+                    className="w-full p-3 rounded-xl border border-slate-300 text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-900"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Uko ifashwe (Status)
-                  </label>
-                  <select
-                    value={addForm.status}
-                    onChange={e => setAddForm({ ...addForm, status: e.target.value as any })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 bg-white"
-                  >
-                    <option value="published">Published (Irakora / Iboneka hose)</option>
-                    <option value="draft">Draft (Inyandiko y'agateganyo)</option>
-                  </select>
+              {/* SECTION 3: LYRICS */}
+              <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1 border-b border-slate-200">
+                  <Edit2 className="w-4 h-4 text-blue-900" />
+                  <span>3. Amagambo y'Indirimbo (Lyrics)</span>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Isomwa / Itangazwa (Release)
+                    Amagambo y'Indirimbo (Lyrics) <span className="text-rose-500">*</span>
                   </label>
-                  <select
-                    value={addForm.release_status}
-                    onChange={e => setAddForm({ ...addForm, release_status: e.target.value as any })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-blue-900 bg-white"
-                  >
-                    <option value="released">Released (Yarasohotse)</option>
-                    <option value="unreleased">Unreleased (Itegerejwe)</option>
-                  </select>
+                  <textarea
+                    rows={8}
+                    value={addForm.lyrics}
+                    onChange={e => {
+                      setAddForm({ ...addForm, lyrics: e.target.value });
+                      if (addValidationErrors.lyrics) {
+                        setAddValidationErrors(prev => ({ ...prev, lyrics: undefined }));
+                      }
+                    }}
+                    placeholder={`1. Ngwino tujyane iwacu aho Imana yateguriye abera...\n\nR/ Uwo yatubereye igitambo...`}
+                    className={`w-full p-3 rounded-xl border text-xs font-mono text-slate-900 focus:outline-none transition-colors ${
+                      addValidationErrors.lyrics
+                        ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600 focus:ring-1 focus:ring-rose-200'
+                        : 'border-slate-300 focus:border-blue-900 focus:ring-1 focus:ring-blue-900'
+                    }`}
+                  />
+                  {addValidationErrors.lyrics && (
+                    <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      <span>{addValidationErrors.lyrics}</span>
+                    </p>
+                  )}
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Amagambo y'Indirimbo (Lyrics) *
-                </label>
-                <textarea
-                  rows={8}
-                  required
-                  value={addForm.lyrics}
-                  onChange={e => setAddForm({ ...addForm, lyrics: e.target.value })}
-                  placeholder={`1. Ngwino tujyane iwacu aho Imana yateguriye abera...\n\nR/ Uwo yatubereye igitambo...`}
-                  className="w-full p-3 rounded-xl border border-slate-300 text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-900"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Solfa Notation (Notes za Muzika - Optional)
-                </label>
-                <textarea
-                  rows={3}
-                  value={addForm.solfa_notation}
-                  onChange={e => setAddForm({ ...addForm, solfa_notation: e.target.value })}
-                  placeholder="d : r : m | f : s : l : d'..."
-                  className="w-full p-3 rounded-xl border border-slate-300 text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-900"
-                />
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setAddForm(DEFAULT_FORM_DATA)}
+                  onClick={() => {
+                    setAddForm(DEFAULT_FORM_DATA);
+                    setAddValidationErrors({});
+                    setAddError('');
+                  }}
                   className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
                 >
                   Gusiba Byose (Clear)
@@ -797,98 +1057,295 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Umutwe w'Indirimbo (Title) *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={editForm.title}
-                      onChange={e => setEditForm({ ...editForm, title: e.target.value })}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:border-blue-900 focus:outline-none"
-                    />
+                {/* SECTION 1: TITLE & CATEGORY */}
+                <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 uppercase tracking-wider pb-1 border-b border-slate-200">
+                    <BookOpen className="w-3.5 h-3.5 text-blue-900" />
+                    <span>1. Umutwe n'Icyiciro (Title & Category)</span>
                   </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Umutwe w'Indirimbo (Title) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.title}
+                        onChange={e => {
+                          setEditForm({ ...editForm, title: e.target.value });
+                          if (editValidationErrors.title) {
+                            setEditValidationErrors(prev => ({ ...prev, title: undefined }));
+                          }
+                        }}
+                        className={`w-full px-3 py-2 text-xs border rounded-xl font-medium focus:outline-none transition-colors ${
+                          editValidationErrors.title
+                            ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                            : 'border-slate-300 focus:border-blue-900'
+                        }`}
+                      />
+                      {editValidationErrors.title && (
+                        <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>{editValidationErrors.title}</span>
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Icyiciro (Category) <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={editForm.category_id}
+                        onChange={e => {
+                          setEditForm({ ...editForm, category_id: e.target.value });
+                          if (editValidationErrors.category_id) {
+                            setEditValidationErrors(prev => ({ ...prev, category_id: undefined }));
+                          }
+                        }}
+                        className={`w-full px-3 py-2 text-xs border rounded-xl bg-white focus:outline-none font-medium transition-colors ${
+                          editValidationErrors.category_id
+                            ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                            : 'border-slate-300 focus:border-blue-900'
+                        }`}
+                      >
+                        {resolvedCategories.map(cat => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.name} ({cat.slug})
+                          </option>
+                        ))}
+                      </select>
+                      {editValidationErrors.category_id && (
+                        <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>{editValidationErrors.category_id}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: METADATA */}
+                <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 uppercase tracking-wider pb-1 border-b border-slate-200">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-900" />
+                    <span>2. Amakuru y'Inyongera (Song Metadata)</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Nimero (Song #) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.song_number}
+                        onChange={e => {
+                          setEditForm({ ...editForm, song_number: e.target.value });
+                          if (editValidationErrors.song_number) {
+                            setEditValidationErrors(prev => ({ ...prev, song_number: undefined }));
+                          }
+                        }}
+                        className={`w-full px-3 py-2 text-xs border rounded-xl font-medium focus:outline-none transition-colors ${
+                          editValidationErrors.song_number
+                            ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                            : 'border-slate-300 focus:border-blue-900'
+                        }`}
+                      />
+                      {editValidationErrors.song_number && (
+                        <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>{editValidationErrors.song_number}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Uwahimbye (Composer) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.composer}
+                        onChange={e => {
+                          setEditForm({ ...editForm, composer: e.target.value });
+                          if (editValidationErrors.composer) {
+                            setEditValidationErrors(prev => ({ ...prev, composer: undefined }));
+                          }
+                        }}
+                        className={`w-full px-3 py-2 text-xs border rounded-xl font-medium focus:outline-none transition-colors ${
+                          editValidationErrors.composer
+                            ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                            : 'border-slate-300 focus:border-blue-900'
+                        }`}
+                      />
+                      {editValidationErrors.composer && (
+                        <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>{editValidationErrors.composer}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Ururimi (Language) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.language}
+                        onChange={e => {
+                          setEditForm({ ...editForm, language: e.target.value });
+                          if (editValidationErrors.language) {
+                            setEditValidationErrors(prev => ({ ...prev, language: undefined }));
+                          }
+                        }}
+                        className={`w-full px-3 py-2 text-xs border rounded-xl font-medium focus:outline-none transition-colors ${
+                          editValidationErrors.language
+                            ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                            : 'border-slate-300 focus:border-blue-900'
+                        }`}
+                      />
+                      {editValidationErrors.language && (
+                        <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>{editValidationErrors.language}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Itariki (Release Date) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={editForm.release_date}
+                        onChange={e => {
+                          setEditForm({ ...editForm, release_date: e.target.value });
+                          if (editValidationErrors.release_date) {
+                            setEditValidationErrors(prev => ({ ...prev, release_date: undefined }));
+                          }
+                        }}
+                        className={`w-full px-3 py-2 text-xs border rounded-xl bg-white focus:outline-none transition-colors ${
+                          editValidationErrors.release_date
+                            ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                            : 'border-slate-300 focus:border-blue-900'
+                        }`}
+                      />
+                      {editValidationErrors.release_date && (
+                        <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>{editValidationErrors.release_date}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Status <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={editForm.status}
+                        onChange={e => setEditForm({ ...editForm, status: e.target.value as any })}
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:border-blue-900"
+                      >
+                        <option value="published">Published</option>
+                        <option value="draft">Draft</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Release Status <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={editForm.release_status}
+                        onChange={e => setEditForm({ ...editForm, release_status: e.target.value as any })}
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:border-blue-900"
+                      >
+                        <option value="released">Released</option>
+                        <option value="unreleased">Unreleased</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Nimero (Song #)
+                      Ibisobanuro by'Indirimbo (Description / Summary) <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
-                      value={editForm.song_number}
-                      onChange={e => setEditForm({ ...editForm, song_number: e.target.value })}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:border-blue-900 focus:outline-none"
+                      value={editForm.description}
+                      onChange={e => {
+                        setEditForm({ ...editForm, description: e.target.value });
+                        if (editValidationErrors.description) {
+                          setEditValidationErrors(prev => ({ ...prev, description: undefined }));
+                        }
+                      }}
+                      placeholder="Ibisobanuro by'indirimbo..."
+                      className={`w-full px-3 py-2 text-xs border rounded-xl font-medium focus:outline-none transition-colors ${
+                        editValidationErrors.description
+                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                          : 'border-slate-300 focus:border-blue-900'
+                      }`}
+                    />
+                    {editValidationErrors.description && (
+                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>{editValidationErrors.description}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Solfa Notation (Notes za Muzika - Optional)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={editForm.solfa_notation}
+                      onChange={e => setEditForm({ ...editForm, solfa_notation: e.target.value })}
+                      placeholder="d : r : m | f : s : l : d'..."
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-mono focus:border-blue-900"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Icyiciro (Category) *
-                    </label>
-                    <select
-                      value={editForm.category_id}
-                      onChange={e => setEditForm({ ...editForm, category_id: e.target.value })}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:border-blue-900"
-                    >
-                      {resolvedCategories.map(cat => (
-                        <option key={cat.id} value={cat.id}>
-                          {cat.name} ({cat.slug})
-                        </option>
-                      ))}
-                    </select>
+                {/* SECTION 3: LYRICS */}
+                <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 uppercase tracking-wider pb-1 border-b border-slate-200">
+                    <Edit2 className="w-3.5 h-3.5 text-blue-900" />
+                    <span>3. Amagambo y'Indirimbo (Lyrics)</span>
                   </div>
+
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Uwahimbye (Composer)
+                      Amagambo y'Indirimbo (Lyrics) <span className="text-rose-500">*</span>
                     </label>
-                    <input
-                      type="text"
-                      value={editForm.composer}
-                      onChange={e => setEditForm({ ...editForm, composer: e.target.value })}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:border-blue-900"
+                    <textarea
+                      rows={8}
+                      value={editForm.lyrics}
+                      onChange={e => {
+                        setEditForm({ ...editForm, lyrics: e.target.value });
+                        if (editValidationErrors.lyrics) {
+                          setEditValidationErrors(prev => ({ ...prev, lyrics: undefined }));
+                        }
+                      }}
+                      className={`w-full p-3 rounded-xl border text-xs font-mono focus:outline-none transition-colors ${
+                        editValidationErrors.lyrics
+                          ? 'border-rose-400 bg-rose-50/30 focus:border-rose-600'
+                          : 'border-slate-300 focus:border-blue-900'
+                      }`}
                     />
+                    {editValidationErrors.lyrics && (
+                      <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        <span>{editValidationErrors.lyrics}</span>
+                      </p>
+                    )}
                   </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Status</label>
-                    <select
-                      value={editForm.status}
-                      onChange={e => setEditForm({ ...editForm, status: e.target.value as any })}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:border-blue-900"
-                    >
-                      <option value="published">Published</option>
-                      <option value="draft">Draft</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Release Status</label>
-                    <select
-                      value={editForm.release_status}
-                      onChange={e => setEditForm({ ...editForm, release_status: e.target.value as any })}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:border-blue-900"
-                    >
-                      <option value="released">Released</option>
-                      <option value="unreleased">Unreleased</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Amagambo y'Indirimbo (Lyrics) *
-                  </label>
-                  <textarea
-                    rows={8}
-                    required
-                    value={editForm.lyrics}
-                    onChange={e => setEditForm({ ...editForm, lyrics: e.target.value })}
-                    className="w-full p-3 rounded-xl border border-slate-300 text-xs font-mono focus:border-blue-900"
-                  />
                 </div>
 
                 <div className="pt-2 flex items-center justify-between">
