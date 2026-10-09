@@ -56,7 +56,7 @@ export function buildCsvPayload(headers: string[], rows: string[][]): string {
 /**
  * Format current date string for file names (YYYY-MM-DD)
  */
-function getDateSuffix(): string {
+export function getDateSuffix(): string {
   const now = new Date();
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, '0');
@@ -64,11 +64,41 @@ function getDateSuffix(): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/**
+ * Streams formatted CSV with UTF-8 BOM, appropriate headers, and chunked transfer
+ */
+export function streamCsvResponse(
+  res: Response,
+  filename: string,
+  headers: string[],
+  rows: string[][]
+): void {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+
+  // Stream UTF-8 BOM for Microsoft Excel / Unicode compatibility
+  res.write('\uFEFF');
+
+  // Stream Header line
+  res.write(formatCsvRow(headers) + '\r\n');
+
+  // Stream each data row
+  for (const row of rows) {
+    res.write(formatCsvRow(row) + '\r\n');
+  }
+
+  res.end();
+}
+
 // -------------------------------------------------------------
 // EXPORT DATA RETRIEVAL FUNCTIONS (READING ACTUAL STORED DATA)
 // -------------------------------------------------------------
 
-function getMembersData(filters: any) {
+export function getMembersData(filters: any) {
   const { date_from, date_to, status, role, search } = filters;
   let query = `
     SELECT id, name, email, phone, role, choir_voice, choir_role,
@@ -139,7 +169,7 @@ function getMembersData(filters: any) {
   return { records, headers, rows, filename: `la-lumiere-members-${getDateSuffix()}.csv` };
 }
 
-function getDonationsData(filters: any) {
+export function getDonationsData(filters: any) {
   const { date_from, date_to, status, provider, search } = filters;
   let query = `
     SELECT id, internal_reference, provider_reference, donor_name, donor_phone,
@@ -216,7 +246,7 @@ function getDonationsData(filters: any) {
   return { records, headers, rows, filename: `la-lumiere-donations-${getDateSuffix()}.csv` };
 }
 
-function getEventsData(filters: any) {
+export function getEventsData(filters: any) {
   const { date_from, date_to, status, event_status, category, search, include_deleted } = filters;
   let query = `
     SELECT e.id, e.title, e.category, e.description, e.event_date,
@@ -652,18 +682,7 @@ exportRouter.get('/:category', requireAdmin, (req: AuthRequest, res: Response) =
     }
 
     const { records, headers, rows, filename } = handler(req.query);
-
-    const csvContent = buildCsvPayload(headers, rows);
-
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    // Expose header so front-end can read filename if needed
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-
-    res.status(200).send(csvContent);
+    streamCsvResponse(res, filename, headers, rows);
   } catch (err: any) {
     console.error('CSV export generation error:', err);
     res.status(500).json({ error: err.message || 'Habaye ikosa mu gutegura dosiye ya CSV (Export failed)' });

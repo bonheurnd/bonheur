@@ -38,7 +38,13 @@ import { initiateRwandaPayment, verifyPaymentTransaction, validateRwandaPhoneNum
 import { RwandaPaymentGatewayService, validateAndNormalizeRwandaPhone } from './server/rwandaPaymentGateway.js';
 import { paymentsRouter } from './server/payments.js';
 import { sendPasswordResetEmail, isEmailServiceConfigured, getEmailConfig } from './server/email.js';
-import { exportRouter } from './server/export.js';
+import {
+  exportRouter,
+  getMembersData,
+  getDonationsData,
+  getEventsData,
+  streamCsvResponse
+} from './server/export.js';
 // @ts-ignore
 import mammoth from 'mammoth';
 
@@ -4577,15 +4583,65 @@ app.get('/api/admin/members/stats', requireAdmin, (req: AuthRequest, res) => {
 });
 
 // -------------------------------------------------------------
-// SECURE CSV DATA EXPORT APIS (Full-featured with UTF-8 BOM, Sanitization, Date Filters)
+// SECURE CSV DATA EXPORT APIS (Full-featured with UTF-8 BOM, Sanitization, Date Filters, Streaming)
 // -------------------------------------------------------------
-app.use('/api/admin/export', exportRouter);
+
+// Dedicated CSV Export for Choir Members (with server-side auth, date filtering, and stream formatting)
+app.get('/api/admin/export/members', requireAdmin, (req: AuthRequest, res: express.Response) => {
+  try {
+    const { headers, rows, filename } = getMembersData(req.query);
+    streamCsvResponse(res, filename, headers, rows);
+  } catch (err: any) {
+    console.error('Members CSV export stream error:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikosa mu gutegura dosiye ya CSV y\'abanyamuryango (Failed to export members)' });
+  }
+});
+
+// Dedicated CSV Export for Donations & Payment Transactions
+app.get('/api/admin/export/donations', requireAdmin, (req: AuthRequest, res: express.Response) => {
+  try {
+    const { headers, rows, filename } = getDonationsData(req.query);
+    streamCsvResponse(res, filename, headers, rows);
+  } catch (err: any) {
+    console.error('Donations CSV export stream error:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikosa mu gutegura dosiye ya CSV y\'inkunga (Failed to export donations)' });
+  }
+});
+
+// Dedicated CSV Export for Choir Events & Activities
+app.get('/api/admin/export/events', requireAdmin, (req: AuthRequest, res: express.Response) => {
+  try {
+    const { headers, rows, filename } = getEventsData(req.query);
+    streamCsvResponse(res, filename, headers, rows);
+  } catch (err: any) {
+    console.error('Events CSV export stream error:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikosa mu gutegura dosiye ya CSV y\'ibikorwa n\'ibitaramo (Failed to export events)' });
+  }
+});
 
 // Backward-compatible Member List CSV Export
-app.get('/api/admin/members/export', requireAdmin, (req: AuthRequest, res, next) => {
-  req.url = '/members' + (req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '');
-  exportRouter(req, res, next);
+app.get('/api/admin/members/export', requireAdmin, (req: AuthRequest, res: express.Response) => {
+  try {
+    const { headers, rows, filename } = getMembersData(req.query);
+    streamCsvResponse(res, filename, headers, rows);
+  } catch (err: any) {
+    console.error('Members CSV export stream error:', err);
+    res.status(500).json({ error: err.message || 'Failed to export members CSV' });
+  }
 });
+
+// Backward-compatible Events CSV Export
+app.get('/api/admin/events/export', requireAdmin, (req: AuthRequest, res: express.Response) => {
+  try {
+    const { headers, rows, filename } = getEventsData(req.query);
+    streamCsvResponse(res, filename, headers, rows);
+  } catch (err: any) {
+    console.error('Events CSV export stream error:', err);
+    res.status(500).json({ error: err.message || 'Failed to export events CSV' });
+  }
+});
+
+app.use('/api/admin/export', exportRouter);
 
 // Member Activity Log (Last 10 user actions)
 app.get('/api/admin/member-activity-logs', requireAdmin, (req: AuthRequest, res) => {
@@ -4768,9 +4824,14 @@ app.get('/api/admin/donations', requireAdmin, (req: AuthRequest, res) => {
 });
 
 // Backward-compatible CSV Export for donations
-app.get('/api/admin/donations/export', requireAdmin, (req: AuthRequest, res, next) => {
-  req.url = '/donations' + (req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '');
-  exportRouter(req, res, next);
+app.get('/api/admin/donations/export', requireAdmin, (req: AuthRequest, res: express.Response) => {
+  try {
+    const { headers, rows, filename } = getDonationsData(req.query);
+    streamCsvResponse(res, filename, headers, rows);
+  } catch (err: any) {
+    console.error('Donations CSV export stream error:', err);
+    res.status(500).json({ error: err.message || 'Failed to export donations CSV' });
+  }
 });
 
 // Admin Branding Management
