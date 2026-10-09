@@ -3286,6 +3286,13 @@ app.put('/api/admin/songs/:id', requireAdmin, (req: AuthRequest, res) => {
       language
     } = req.body;
 
+    const previousSong = db.prepare('SELECT * FROM songs WHERE id = ?').get(id) as any;
+    const previousLyrics = db.prepare('SELECT * FROM lyrics WHERE song_id = ?').get(id) as any;
+
+    if (!previousSong) {
+      return res.status(404).json({ error: 'Indirimbo ntabwo yabonetse (Song not found)' });
+    }
+
     const finalCategoryId = category_id !== undefined ? resolveCategoryId(category_id) : undefined;
     const parsedNum = parseInt(song_number, 10);
     const orderNum = !isNaN(parsedNum) ? parsedNum : 0;
@@ -3346,7 +3353,82 @@ app.put('/api/admin/songs/:id', requireAdmin, (req: AuthRequest, res) => {
       }
     }
 
-    logActivity(req.user!.id, req.user!.name, req.user!.role, 'UPDATE_SONG', 'songs', id, `Updated song "${title || id}"`);
+    // Detailed field comparison for immutable audit trail
+    const changedFields: string[] = [];
+    const previousValues: Record<string, any> = {};
+    const newValues: Record<string, any> = {};
+
+    if (title !== undefined && title.trim() !== (previousSong.title || '')) {
+      changedFields.push('title');
+      previousValues.title = previousSong.title;
+      newValues.title = title.trim();
+    }
+    if (song_number !== undefined && String(song_number).trim() !== String(previousSong.song_number || '')) {
+      changedFields.push('song_number');
+      previousValues.song_number = previousSong.song_number;
+      newValues.song_number = String(song_number).trim();
+    }
+    if (composer !== undefined && composer.trim() !== (previousSong.composer || '')) {
+      changedFields.push('composer');
+      previousValues.composer = previousSong.composer;
+      newValues.composer = composer.trim();
+    }
+    if (finalCategoryId !== undefined && finalCategoryId !== previousSong.category_id) {
+      changedFields.push('category');
+      previousValues.category_id = previousSong.category_id;
+      newValues.category_id = finalCategoryId;
+    }
+    if (release_status !== undefined && release_status !== previousSong.release_status) {
+      changedFields.push('release_status');
+      previousValues.release_status = previousSong.release_status;
+      newValues.release_status = release_status;
+    }
+    if (status !== undefined && status !== previousSong.status) {
+      changedFields.push('status');
+      previousValues.status = previousSong.status;
+      newValues.status = status;
+    }
+    if (lyrics !== undefined && (!previousLyrics || lyrics.trim() !== (previousLyrics.content || ''))) {
+      changedFields.push('lyrics');
+      previousValues.lyricsLength = previousLyrics ? (previousLyrics.content || '').length : 0;
+      newValues.lyricsLength = lyrics.trim().length;
+    }
+    if (solfa_notation !== undefined && (!previousLyrics || solfa_notation !== (previousLyrics.solfa_notation || ''))) {
+      changedFields.push('solfa_notation');
+      previousValues.solfa_notation = previousLyrics ? previousLyrics.solfa_notation : null;
+      newValues.solfa_notation = solfa_notation;
+    }
+
+    const effectiveTitle = title ? title.trim() : (previousSong.title || id);
+    const summaryText = changedFields.length > 0
+      ? `Manual song edit on "${effectiveTitle}" (Changed: ${changedFields.join(', ')})`
+      : `Manual metadata update on "${effectiveTitle}"`;
+
+    const auditPayload = JSON.stringify({
+      actionType: 'MANUAL_SONG_EDIT',
+      songId: id,
+      songTitle: effectiveTitle,
+      songNumber: song_number ? String(song_number).trim() : previousSong.song_number,
+      changedFields,
+      previousValues,
+      newValues,
+      editor: {
+        id: req.user!.id,
+        name: req.user!.name,
+        role: req.user!.role
+      },
+      summary: summaryText
+    });
+
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'MANUAL_SONG_EDIT',
+      'songs',
+      id,
+      auditPayload
+    );
 
     const totalCount = db.prepare('SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL)').get() as any;
     broadcastRealtimeEvent('songs_updated', {
@@ -3365,9 +3447,21 @@ app.put('/api/admin/songs/:id', requireAdmin, (req: AuthRequest, res) => {
 app.delete('/api/admin/songs/:id', requireAdmin, (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
+    const song = db.prepare('SELECT title, song_number FROM songs WHERE id = ?').get(id) as any;
+    const songTitle = song?.title || id;
+
     db.prepare('UPDATE songs SET is_deleted = 1, deleted_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
 
-    logActivity(req.user!.id, req.user!.name, req.user!.role, 'DELETE_SONG', 'songs', id, `Soft-deleted song ${id}`);
+    const deleteAudit = JSON.stringify({
+      actionType: 'DELETE_SONG',
+      songId: id,
+      songTitle,
+      songNumber: song?.song_number,
+      editor: { id: req.user!.id, name: req.user!.name, role: req.user!.role },
+      summary: `Soft-deleted song #${song?.song_number || ''} "${songTitle}"`
+    });
+
+    logActivity(req.user!.id, req.user!.name, req.user!.role, 'DELETE_SONG', 'songs', id, deleteAudit);
 
     const totalCount = db.prepare('SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL)').get() as any;
     broadcastRealtimeEvent('songs_updated', {
@@ -3386,9 +3480,21 @@ app.delete('/api/admin/songs/:id', requireAdmin, (req: AuthRequest, res) => {
 app.post('/api/admin/songs/:id/restore', requireAdmin, (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
+    const song = db.prepare('SELECT title, song_number FROM songs WHERE id = ?').get(id) as any;
+    const songTitle = song?.title || id;
+
     db.prepare('UPDATE songs SET is_deleted = 0, deleted_at = NULL WHERE id = ?').run(id);
 
-    logActivity(req.user!.id, req.user!.name, req.user!.role, 'RESTORE_SONG', 'songs', id, `Restored song ${id}`);
+    const restoreAudit = JSON.stringify({
+      actionType: 'RESTORE_SONG',
+      songId: id,
+      songTitle,
+      songNumber: song?.song_number,
+      editor: { id: req.user!.id, name: req.user!.name, role: req.user!.role },
+      summary: `Restored deleted song #${song?.song_number || ''} "${songTitle}"`
+    });
+
+    logActivity(req.user!.id, req.user!.name, req.user!.role, 'RESTORE_SONG', 'songs', id, restoreAudit);
 
     const totalCount = db.prepare('SELECT COUNT(*) as count FROM songs WHERE (is_deleted = 0 OR is_deleted IS NULL)').get() as any;
     broadcastRealtimeEvent('songs_updated', {
@@ -4468,6 +4574,143 @@ app.all('/api/admin/users/:id/status', requireSuperAdmin, (req: AuthRequest, res
   }
 });
 
+// Bulk User Removal / Disabling Endpoint with Comprehensive Audit Logging
+app.post('/api/admin/users/bulk-remove', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { userIds, action = 'disable', reason = 'Administrative bulk user action' } = req.body;
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ error: 'Hitamo byibura umukoresha umwe (Select at least one user)' });
+    }
+
+    const currentUserId = req.user!.id;
+    const sanitizedIds = userIds.filter((uid: any) => typeof uid === 'string' && uid.trim().length > 0);
+
+    if (sanitizedIds.length === 0) {
+      return res.status(400).json({ error: 'Nta ID z\'abakoresha zikwiye zatanzwe' });
+    }
+
+    // Protection: do not allow bulk removal of current user
+    if (sanitizedIds.includes(currentUserId)) {
+      return res.status(400).json({ error: 'Ntushobora kwikuraho wowe ubwawe muri iki gikorwa (Cannot remove yourself in bulk action)' });
+    }
+
+    // Fetch existing records for audit trail evidence
+    const placeholders = sanitizedIds.map(() => '?').join(',');
+    const targetUsers = db.prepare(`SELECT id, name, email, phone, role, is_disabled FROM users WHERE id IN (${placeholders})`).all(...sanitizedIds) as any[];
+
+    if (targetUsers.length === 0) {
+      return res.status(404).json({ error: 'Nta banyamuryango babonetse b\'izo ID zatanzwe' });
+    }
+
+    // Protect super admins from being removed by non-super-admins
+    const hasSuperAdmin = targetUsers.some(u => u.role === 'super_admin');
+    if (hasSuperAdmin && req.user!.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Ntabwo wemerewe gukuraho abayobozi bakuru (Super Admin accounts cannot be removed)' });
+    }
+
+    const finalTargetIds = targetUsers.map(u => u.id);
+    const finalPlaceholders = finalTargetIds.map(() => '?').join(',');
+    const isHardDelete = action === 'delete';
+
+    // Execute in transaction
+    db.transaction(() => {
+      if (isHardDelete) {
+        db.prepare(`DELETE FROM comments WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
+        db.prepare(`DELETE FROM favorites WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
+        db.prepare(`DELETE FROM notifications WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
+        db.prepare(`DELETE FROM event_interests WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
+        db.prepare(`DELETE FROM users WHERE id IN (${finalPlaceholders})`).run(...finalTargetIds);
+      } else {
+        db.prepare(`UPDATE users SET is_disabled = 1 WHERE id IN (${finalPlaceholders})`).run(...finalTargetIds);
+      }
+    })();
+
+    // Immutable audit trail recording
+    const affectedSummary = targetUsers.map(u => `${u.name || 'User'} (${u.email || u.id})`).slice(0, 5).join(', ');
+    const extraCount = targetUsers.length > 5 ? ` and ${targetUsers.length - 5} more` : '';
+    const auditAction = isHardDelete ? 'BULK_USER_DELETE' : 'BULK_USER_DISABLE';
+    const auditDetails = JSON.stringify({
+      actionType: 'BULK_USER_REMOVAL',
+      mode: isHardDelete ? 'permanent_delete' : 'disable',
+      count: targetUsers.length,
+      reason,
+      operator: {
+        id: req.user!.id,
+        name: req.user!.name,
+        role: req.user!.role
+      },
+      affectedUsers: targetUsers.map(u => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role
+      })),
+      summary: `Bulk ${isHardDelete ? 'permanently deleted' : 'disabled'} ${targetUsers.length} user account(s): ${affectedSummary}${extraCount}`
+    });
+
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      auditAction,
+      'users',
+      null,
+      auditDetails
+    );
+
+    res.json({
+      success: true,
+      count: targetUsers.length,
+      action: isHardDelete ? 'delete' : 'disable',
+      message: `Abanyamuryango ${targetUsers.length} ${isHardDelete ? 'basibwe burundu' : 'bahagaritswe'} neza`,
+      affectedUsers: targetUsers.map(u => ({ id: u.id, name: u.name }))
+    });
+  } catch (err: any) {
+    console.error('Bulk user removal error:', err);
+    res.status(500).json({ error: err.message || 'Failed to execute bulk user removal' });
+  }
+});
+
+// Single User Permanent Removal with Audit Logging
+app.delete('/api/admin/users/:id', requireSuperAdmin, (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    if (id === req.user!.id) {
+      return res.status(400).json({ error: 'Ntushobora kwisiba wowe ubwawe (Cannot delete yourself)' });
+    }
+
+    const targetUser = db.prepare('SELECT id, name, email, role FROM users WHERE id = ?').get(id) as any;
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Umukoresha ntabwo yabonetse' });
+    }
+
+    db.transaction(() => {
+      db.prepare('DELETE FROM comments WHERE user_id = ?').run(id);
+      db.prepare('DELETE FROM favorites WHERE user_id = ?').run(id);
+      db.prepare('DELETE FROM notifications WHERE user_id = ?').run(id);
+      db.prepare('DELETE FROM event_interests WHERE user_id = ?').run(id);
+      db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    })();
+
+    const auditDetails = JSON.stringify({
+      actionType: 'DELETE_USER',
+      targetUserId: id,
+      targetName: targetUser.name,
+      targetEmail: targetUser.email,
+      targetRole: targetUser.role,
+      operator: { id: req.user!.id, name: req.user!.name, role: req.user!.role },
+      summary: `Permanently removed user account: ${targetUser.name} (${targetUser.email}, ${targetUser.role})`
+    });
+
+    logActivity(req.user!.id, req.user!.name, req.user!.role, 'DELETE_USER', 'users', id, auditDetails);
+
+    res.json({ message: 'Umukoresha yasibwe burundu neza (User deleted permanently)', id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to delete user' });
+  }
+});
+
 // Member Directory API with server-side role verification
 app.get('/api/admin/members', requireAdmin, (req: AuthRequest, res) => {
   try {
@@ -4755,35 +4998,132 @@ app.post('/api/admin/users/:id/reset-password', requireSuperAdmin, (req: AuthReq
 });
 
 // -------------------------------------------------------------
-// ACTIVITY AUDIT LOGS
+// SECURE, READ-ONLY IMMUTABLE ACTIVITY AUDIT LOGS
 // -------------------------------------------------------------
+
+// Detailed Stats for Admin Audit Log Dashboard
+app.get('/api/admin/activity-logs/stats', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const totalCount = (db.prepare('SELECT COUNT(*) as count FROM activity_logs').get() as any)?.count || 0;
+
+    const songEditsCount = (db.prepare(`
+      SELECT COUNT(*) as count FROM activity_logs 
+      WHERE action IN ('MANUAL_SONG_EDIT', 'UPDATE_SONG', 'CREATE_SONG', 'DELETE_SONG', 'RESTORE_SONG', 'STATUS_CHANGE', 'RELEASE_STATUS_CHANGE')
+    `).get() as any)?.count || 0;
+
+    const userActionsCount = (db.prepare(`
+      SELECT COUNT(*) as count FROM activity_logs 
+      WHERE action IN ('BULK_USER_REMOVAL', 'BULK_USER_DELETE', 'BULK_USER_DISABLE', 'CHANGE_USER_ROLE', 'CHANGE_USER_STATUS', 'BLOCK_USER', 'DELETE_USER', 'ACCOUNT_DELETED')
+    `).get() as any)?.count || 0;
+
+    const exportActionsCount = (db.prepare(`
+      SELECT COUNT(*) as count FROM activity_logs 
+      WHERE action IN ('CSV_EXPORT', 'EXPORT')
+    `).get() as any)?.count || 0;
+
+    const last24hCount = (db.prepare(`
+      SELECT COUNT(*) as count FROM activity_logs 
+      WHERE created_at >= datetime('now', '-24 hours')
+    `).get() as any)?.count || 0;
+
+    const topActors = db.prepare(`
+      SELECT user_name, user_role, COUNT(*) as action_count
+      FROM activity_logs
+      GROUP BY user_name, user_role
+      ORDER BY action_count DESC
+      LIMIT 5
+    `).all() as any[];
+
+    res.json({
+      totalCount,
+      songEditsCount,
+      userActionsCount,
+      exportActionsCount,
+      last24hCount,
+      topActors
+    });
+  } catch (err: any) {
+    console.error('Failed to fetch activity logs stats:', err);
+    res.status(500).json({ error: 'Failed to fetch audit log stats' });
+  }
+});
+
 app.get('/api/admin/activity-logs', requireAdmin, (req: AuthRequest, res) => {
   try {
-    const { resource, action, search, limit = 50 } = req.query;
+    const { resource, action, category, search, date_from, date_to, limit = 100, offset = 0 } = req.query;
     let query = `SELECT * FROM activity_logs WHERE 1=1`;
     const params: any[] = [];
+
+    if (category && category !== 'all') {
+      const cat = String(category).toLowerCase();
+      if (cat === 'songs' || cat === 'song_edits') {
+        query += ` AND (action IN ('MANUAL_SONG_EDIT', 'UPDATE_SONG', 'CREATE_SONG', 'DELETE_SONG', 'RESTORE_SONG', 'STATUS_CHANGE', 'RELEASE_STATUS_CHANGE', 'ADD_AUDIO_TRACK', 'DELETE_AUDIO') OR resource = 'songs')`;
+      } else if (cat === 'users' || cat === 'user_removals') {
+        query += ` AND (action IN ('BULK_USER_REMOVAL', 'BULK_USER_DELETE', 'BULK_USER_DISABLE', 'CHANGE_USER_ROLE', 'CHANGE_USER_STATUS', 'BLOCK_USER', 'DELETE_USER', 'RESET_PASSWORD', 'ACCOUNT_DELETED') OR resource = 'users')`;
+      } else if (cat === 'export' || cat === 'exports') {
+        query += ` AND (action = 'CSV_EXPORT' OR resource = 'export')`;
+      } else if (cat === 'auth' || cat === 'logins') {
+        query += ` AND (action IN ('USER_LOGIN', 'ADMIN_LOGIN', 'LOGOUT') OR resource = 'auth')`;
+      } else if (cat === 'content') {
+        query += ` AND (action LIKE '%ANNOUNCEMENT%' OR action LIKE '%ARTICLE%' OR action LIKE '%EVENT%' OR resource IN ('announcements', 'events', 'content_articles'))`;
+      }
+    }
 
     if (resource && resource !== 'all') {
       query += ` AND resource = ?`;
       params.push(resource);
     }
+
     if (action && action !== 'all') {
       query += ` AND action = ?`;
       params.push(action);
     }
-    if (search && typeof search === 'string') {
-      query += ` AND (details LIKE ? OR user_name LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`);
+
+    if (date_from) {
+      query += ` AND created_at >= ?`;
+      params.push(date_from);
     }
 
-    query += ` ORDER BY created_at DESC LIMIT ?`;
-    params.push(Number(limit) || 50);
+    if (date_to) {
+      query += ` AND created_at <= ?`;
+      params.push(date_to + ' 23:59:59');
+    }
+
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      query += ` AND (details LIKE ? OR user_name LIKE ? OR action LIKE ? OR resource LIKE ? OR id LIKE ?)`;
+      params.push(term, term, term, term, term);
+    }
+
+    // Clone for count before limit
+    const countQuery = query.replace('SELECT *', 'SELECT COUNT(*) as count');
+    const totalMatching = (db.prepare(countQuery).get(...params) as any)?.count || 0;
+
+    query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    params.push(Number(limit) || 100, Number(offset) || 0);
 
     const logs = db.prepare(query).all(...params);
-    res.json(logs);
-  } catch (err) {
+    res.setHeader('X-Total-Count', String(totalMatching));
+
+    if (req.query.format === 'envelope') {
+      res.json({ logs, total: totalMatching, limit: Number(limit) || 100, offset: Number(offset) || 0 });
+    } else {
+      res.json(logs);
+    }
+  } catch (err: any) {
+    console.error('Failed to fetch activity logs:', err);
     res.status(500).json({ error: 'Failed to fetch activity logs' });
   }
+});
+
+// Explicitly protect audit logs from tampering (Immutable Security Ledger)
+app.all(['/api/admin/activity-logs', '/api/admin/activity-logs/*'], (req, res, next) => {
+  if (['DELETE', 'PUT', 'PATCH', 'POST'].includes(req.method)) {
+    return res.status(405).json({
+      error: 'Audit logs are immutable. Deletion or modification of administrative security records is strictly forbidden.'
+    });
+  }
+  next();
 });
 
 // Admin Donations Dashboard & CSV Export

@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { db } from './db.js';
+import { db, logActivity } from './db.js';
 import { requireAdmin, AuthRequest, isUserAdmin } from './auth.js';
 
 export const exportRouter = Router();
@@ -682,6 +682,27 @@ exportRouter.get('/:category', requireAdmin, (req: AuthRequest, res: Response) =
     }
 
     const { records, headers, rows, filename } = handler(req.query);
+
+    if (req.user) {
+      const exportDetails = JSON.stringify({
+        actionType: 'CSV_EXPORT',
+        category,
+        count: records.length,
+        filename,
+        filters: req.query,
+        summary: `Exported ${records.length} records from category "${category}" to CSV (${filename})`
+      });
+      logActivity(
+        req.user.id,
+        req.user.name,
+        req.user.role,
+        'CSV_EXPORT',
+        'export',
+        category,
+        exportDetails
+      );
+    }
+
     streamCsvResponse(res, filename, headers, rows);
   } catch (err: any) {
     console.error('CSV export generation error:', err);

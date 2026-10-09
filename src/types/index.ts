@@ -225,10 +225,24 @@ export interface ActivityLog {
   action: string;
   resource?: string;
   resource_type?: string;
+  resource_id?: string;
   target_id?: string;
   details?: string;
   ip_address?: string;
   created_at: string;
+}
+
+export interface AuditLogStats {
+  totalCount: number;
+  songEditsCount: number;
+  userActionsCount: number;
+  exportActionsCount: number;
+  last24hCount: number;
+  topActors: Array<{
+    user_name: string;
+    user_role: string;
+    action_count: number;
+  }>;
 }
 
 export interface AdminMetrics {
