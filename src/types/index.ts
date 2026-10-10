@@ -120,6 +120,17 @@ export interface Song {
   created_by?: string;
 }
 
+export interface SyncedLyricLine {
+  id: number;
+  raw: string;
+  text: string;
+  timestamp: number;
+  formattedTime?: string;
+  isChorus?: boolean;
+  isVerse?: boolean;
+  isEmpty?: boolean;
+}
+
 export interface Comment {
   id: string;
   song_id: string;

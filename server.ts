@@ -98,6 +98,7 @@ const upload = multer({
 
 // Serve uploaded files statically
 app.use('/uploads', express.static(UPLOAD_DIR));
+app.use('/audio', express.static(path.join(process.cwd(), 'public', 'audio')));
 
 // -------------------------------------------------------------
 // REAL-TIME EVENT STREAMING (Server-Sent Events / SSE)
