@@ -11,6 +11,7 @@ import { createServer as createViteServer } from 'vite';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import multer from 'multer';
+import PDFDocument from 'pdfkit';
 import { db, initDatabase, logActivity, getMomoDonationSettings, updateMomoDonationSettings } from './server/db.js';
 import {
   generateToken,
@@ -1629,6 +1630,7 @@ app.get('/api/songs', optionalAuth, (req: AuthRequest, res) => {
     let query = `
       SELECT s.id, s.title, s.song_number, s.composer, s.category_id, s.release_status,
              s.release_date, s.description, s.cover_image_url, s.views_count, s.display_order,
+             s.lyrics_pdf_url, s.lyrics_pdf_filename,
              sc.name as category_name, sc.slug as category_slug,
              (SELECT COUNT(*) FROM audio_tracks at WHERE at.song_id = s.id) as audio_count,
              (SELECT COUNT(*) FROM comments c WHERE c.song_id = s.id AND c.status = 'visible') as comments_count
@@ -1684,6 +1686,9 @@ app.get('/api/songs', optionalAuth, (req: AuthRequest, res) => {
       ...s,
       is_favorite: favoriteSongIds.has(s.id),
       has_audio: Number(s.audio_count) > 0,
+      has_pdf: Boolean(s.lyrics_pdf_url),
+      lyrics_pdf_url: s.lyrics_pdf_url || null,
+      lyrics_pdf_filename: s.lyrics_pdf_filename || null,
       is_unreleased: s.release_status === 'unreleased'
     }));
 
@@ -3781,6 +3786,313 @@ app.delete('/api/admin/images/:id', requireAdmin, (req: AuthRequest, res) => {
 });
 
 // -------------------------------------------------------------
+// SONG LYRICS PDF MANAGEMENT & DOWNLOAD/PRINT
+// -------------------------------------------------------------
+
+// Upload or link a PDF version of lyrics to a song (Admin)
+app.post('/api/admin/songs/:id/lyrics-pdf', requireAdmin, upload.single('file'), (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const song = db.prepare('SELECT id, title, song_number, composer, lyrics_pdf_url FROM songs WHERE id = ?').get(id) as any;
+    if (!song) {
+      if (req.file) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+      }
+      return res.status(404).json({ error: 'Indirimbo ntabwo yabonetse (Song not found)' });
+    }
+
+    let fileUrl = '';
+    let filename = '';
+    let fileSize = 0;
+
+    if (req.file) {
+      // File upload mode
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      const isPdf = req.file.mimetype === 'application/pdf' || ext === '.pdf';
+      if (!isPdf) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: 'Ubwoko bw\'idosiye bugomba kuba PDF gusa (.pdf file required)' });
+      }
+      fileUrl = `/uploads/${req.file.filename}`;
+      filename = req.file.originalname;
+      fileSize = req.file.size;
+    } else if (req.body.pdf_url && typeof req.body.pdf_url === 'string' && req.body.pdf_url.trim()) {
+      // Link URL mode
+      fileUrl = req.body.pdf_url.trim();
+      filename = req.body.filename?.trim() || `Indirimbo_${song.song_number || song.id}_Lyrics.pdf`;
+    } else {
+      return res.status(400).json({ error: 'Hitamo idosiye ya PDF cyangwa wandike link ya PDF (Please upload a PDF file or provide a valid PDF link)' });
+    }
+
+    // Update song in database
+    db.prepare(`
+      UPDATE songs
+      SET lyrics_pdf_url = ?, lyrics_pdf_filename = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(fileUrl, filename, id);
+
+    // Also register in documents table for choir document catalog
+    try {
+      const docId = 'doc_pdf_' + Date.now();
+      db.prepare(`
+        INSERT INTO documents (id, title, doc_type, file_url, song_id, file_size_bytes, mime_type, original_filename, status, is_deleted, created_by)
+        VALUES (?, ?, 'sheet_music', ?, ?, ?, 'application/pdf', ?, 'published', 0, ?)
+      `).run(
+        docId,
+        `Lyrics PDF: ${song.song_number ? '#' + song.song_number + ' ' : ''}${song.title}`,
+        fileUrl,
+        id,
+        fileSize,
+        filename,
+        req.user!.id
+      );
+    } catch {}
+
+    // Audit logging
+    const uploadDetails = JSON.stringify({
+      message: `${req.file ? 'Uploaded' : 'Linked'} lyrics PDF "${filename}" for song #${song.song_number || ''} ${song.title}`,
+      previous_url: song.lyrics_pdf_url,
+      new_url: fileUrl,
+      filename
+    });
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      req.file ? 'UPLOAD_LYRICS_PDF' : 'LINK_LYRICS_PDF',
+      'songs',
+      id,
+      uploadDetails
+    );
+
+    broadcastRealtimeEvent('songs_updated', {
+      action: 'lyrics_pdf_updated',
+      songId: id,
+      lyrics_pdf_url: fileUrl,
+      lyrics_pdf_filename: filename
+    });
+
+    res.json({
+      success: true,
+      message: 'PDF y\'amagambo yashyizwemo neza (Lyrics PDF saved successfully)',
+      lyrics_pdf_url: fileUrl,
+      lyrics_pdf_filename: filename
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Habaye ikibazo mu kubika PDF: ' + (err.message || 'Unknown error') });
+  }
+});
+
+// Remove/unlink lyrics PDF from a song (Admin)
+app.delete('/api/admin/songs/:id/lyrics-pdf', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const song = db.prepare('SELECT id, title, song_number, lyrics_pdf_url, lyrics_pdf_filename FROM songs WHERE id = ?').get(id) as any;
+    if (!song) {
+      return res.status(404).json({ error: 'Indirimbo ntabwo yabonetse (Song not found)' });
+    }
+
+    db.prepare(`
+      UPDATE songs
+      SET lyrics_pdf_url = NULL, lyrics_pdf_filename = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(id);
+
+    const removeDetails = JSON.stringify({
+      message: `Removed lyrics PDF from song #${song.song_number || ''} ${song.title}`,
+      previous_url: song.lyrics_pdf_url,
+      previous_filename: song.lyrics_pdf_filename
+    });
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'REMOVE_LYRICS_PDF',
+      'songs',
+      id,
+      removeDetails
+    );
+
+    broadcastRealtimeEvent('songs_updated', {
+      action: 'lyrics_pdf_removed',
+      songId: id
+    });
+
+    res.json({
+      success: true,
+      message: 'PDF y\'amagambo yakuweho neza (Lyrics PDF removed successfully)'
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Habaye ikibazo mu gukuraho PDF' });
+  }
+});
+
+// Download or print/view lyrics PDF for any song
+app.get(['/api/songs/:id/pdf', '/api/songs/:id/lyrics-pdf'], optionalAuth, (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const song = db.prepare(`
+      SELECT s.*, sc.name as category_name
+      FROM songs s
+      LEFT JOIN song_categories sc ON s.category_id = sc.id
+      WHERE s.id = ?
+    `).get(id) as any;
+
+    if (!song) {
+      return res.status(404).json({ error: 'Indirimbo ntabwo yabonetse (Song not found)' });
+    }
+
+    const lyricsRow = db.prepare('SELECT * FROM lyrics WHERE song_id = ?').get(id) as any;
+
+    const safeNum = song.song_number ? `No_${song.song_number}_` : '';
+    const safeTitle = (song.title || 'Indirimbo').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const defaultFilename = `La_Lumiere_${safeNum}${safeTitle}_Lyrics.pdf`;
+    const finalFilename = song.lyrics_pdf_filename || defaultFilename;
+
+    const isDownload = req.query.download === '1' || req.query.download === 'true';
+    const disposition = isDownload ? 'attachment' : 'inline';
+
+    // If song has an uploaded local PDF file in /uploads
+    if (song.lyrics_pdf_url && song.lyrics_pdf_url.startsWith('/uploads/')) {
+      const localFilePath = path.join(process.cwd(), 'public', song.lyrics_pdf_url);
+      if (fs.existsSync(localFilePath)) {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `${disposition}; filename="${finalFilename}"`);
+        return res.sendFile(localFilePath);
+      }
+    }
+
+    // If song has an external link (http/https)
+    if (song.lyrics_pdf_url && (song.lyrics_pdf_url.startsWith('http://') || song.lyrics_pdf_url.startsWith('https://'))) {
+      return res.redirect(song.lyrics_pdf_url);
+    }
+
+    // Generate formatted choir PDF on-the-fly using PDFKit
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${disposition}; filename="${finalFilename}"`);
+
+    const doc = new PDFDocument({
+      size: 'A4',
+      margins: { top: 40, bottom: 40, left: 45, right: 45 },
+      info: {
+        Title: `${song.song_number ? '#' + song.song_number + ' - ' : ''}${song.title} - Amagambo`,
+        Author: 'ADEPR Nyanza - Korali La Lumiere',
+        Subject: 'Igitabo cy\'Indirimbo (La Lumiere Hymnbook)',
+        Keywords: 'La Lumiere, ADEPR, Choir, Hymns, Lyrics'
+      }
+    });
+
+    doc.pipe(res);
+
+    // Choir Top Branding Header
+    doc
+      .fontSize(9)
+      .fillColor('#64748b')
+      .text('ADEPR NYANZA • KORALI LA LUMIERE • IGITABO CY\'INDIRIMBO', { align: 'center' });
+
+    doc.moveDown(0.3);
+
+    // Decorative line
+    doc
+      .strokeColor('#d97706')
+      .lineWidth(1.5)
+      .moveTo(45, doc.y)
+      .lineTo(550, doc.y)
+      .stroke();
+
+    doc.moveDown(0.8);
+
+    // Song Number & Title
+    if (song.song_number) {
+      doc
+        .fontSize(11)
+        .fillColor('#d97706')
+        .font('Helvetica-Bold')
+        .text(`INDIRIMBO YA ${song.song_number}`, { align: 'center' });
+      doc.moveDown(0.2);
+    }
+
+    doc
+      .fontSize(18)
+      .fillColor('#1e3a8a')
+      .font('Helvetica-Bold')
+      .text(song.title, { align: 'center' });
+
+    doc.moveDown(0.4);
+
+    // Meta details (Category, Composer)
+    const metaParts = [];
+    if (song.category_name) metaParts.push(`Icyiciro: ${song.category_name}`);
+    metaParts.push(`Amahimbaza: ${song.composer || 'La Lumiere Choir'}`);
+    if (song.release_date) metaParts.push(`Tariki: ${song.release_date}`);
+
+    doc
+      .fontSize(9)
+      .fillColor('#475569')
+      .font('Helvetica-Oblique')
+      .text(metaParts.join('  •  '), { align: 'center' });
+
+    doc.moveDown(0.8);
+
+    // Sol-fa notation if present
+    if (lyricsRow?.solfa_notation && lyricsRow.solfa_notation.trim()) {
+      doc
+        .fontSize(9)
+        .font('Courier-Bold')
+        .fillColor('#0284c7')
+        .text('Amanota (Tonic Sol-Fa):', { align: 'left' });
+      doc
+        .fontSize(8.5)
+        .font('Courier')
+        .fillColor('#0f172a')
+        .text(lyricsRow.solfa_notation.trim(), { align: 'left' });
+      doc.moveDown(0.8);
+    }
+
+    // Divider
+    doc
+      .strokeColor('#cbd5e1')
+      .lineWidth(0.5)
+      .moveTo(45, doc.y)
+      .lineTo(550, doc.y)
+      .stroke();
+
+    doc.moveDown(0.8);
+
+    // Song Lyrics Content
+    const lyricsContent = lyricsRow?.content?.trim() || song.description?.trim() || 'Nta magambo yashyizwe muri iyi ndirimbo kugeza ubu.';
+
+    doc
+      .fontSize(10.5)
+      .font('Helvetica')
+      .fillColor('#0f172a')
+      .lineGap(3)
+      .text(lyricsContent, {
+        align: 'left',
+        paragraphGap: 8
+      });
+
+    doc.moveDown(1.5);
+
+    // Footer
+    doc
+      .fontSize(8)
+      .fillColor('#94a3b8')
+      .font('Helvetica')
+      .text(
+        '© Korali La Lumiere - ADEPR Nyanza. Uburenganzira bwose bwarabitswe. Byacapwe binyuze kuri La Lumiere Songbook App.',
+        45,
+        780,
+        { align: 'center', width: 505 }
+      );
+
+    doc.end();
+  } catch (err: any) {
+    res.status(500).json({ error: 'Habaye ikibazo mu gukora PDF: ' + (err.message || 'Unknown error') });
+  }
+});
+
+// -------------------------------------------------------------
 // ANNOUNCEMENTS CMS
 // -------------------------------------------------------------
 app.get('/api/admin/announcements', requireAdmin, (req: AuthRequest, res) => {
@@ -4614,7 +4926,8 @@ app.post('/api/admin/users/bulk-remove', requireAdmin, (req: AuthRequest, res) =
     const isHardDelete = action === 'delete';
 
     // Execute in transaction
-    db.transaction(() => {
+    db.exec('BEGIN TRANSACTION;');
+    try {
       if (isHardDelete) {
         db.prepare(`DELETE FROM comments WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
         db.prepare(`DELETE FROM favorites WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
@@ -4624,7 +4937,11 @@ app.post('/api/admin/users/bulk-remove', requireAdmin, (req: AuthRequest, res) =
       } else {
         db.prepare(`UPDATE users SET is_disabled = 1 WHERE id IN (${finalPlaceholders})`).run(...finalTargetIds);
       }
-    })();
+      db.exec('COMMIT;');
+    } catch (txErr) {
+      db.exec('ROLLBACK;');
+      throw txErr;
+    }
 
     // Immutable audit trail recording
     const affectedSummary = targetUsers.map(u => `${u.name || 'User'} (${u.email || u.id})`).slice(0, 5).join(', ');
@@ -4655,7 +4972,7 @@ app.post('/api/admin/users/bulk-remove', requireAdmin, (req: AuthRequest, res) =
       req.user!.role,
       auditAction,
       'users',
-      null,
+      undefined,
       auditDetails
     );
 
@@ -4685,13 +5002,18 @@ app.delete('/api/admin/users/:id', requireSuperAdmin, (req: AuthRequest, res) =>
       return res.status(404).json({ error: 'Umukoresha ntabwo yabonetse' });
     }
 
-    db.transaction(() => {
+    db.exec('BEGIN TRANSACTION;');
+    try {
       db.prepare('DELETE FROM comments WHERE user_id = ?').run(id);
       db.prepare('DELETE FROM favorites WHERE user_id = ?').run(id);
       db.prepare('DELETE FROM notifications WHERE user_id = ?').run(id);
       db.prepare('DELETE FROM event_interests WHERE user_id = ?').run(id);
       db.prepare('DELETE FROM users WHERE id = ?').run(id);
-    })();
+      db.exec('COMMIT;');
+    } catch (txErr) {
+      db.exec('ROLLBACK;');
+      throw txErr;
+    }
 
     const auditDetails = JSON.stringify({
       actionType: 'DELETE_USER',

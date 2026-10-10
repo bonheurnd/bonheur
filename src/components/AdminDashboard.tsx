@@ -310,7 +310,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'comments', label: 'Ibitekerezo', icon: MessageSquare },
           { id: 'users', label: 'Abanyamuryango (Members)', icon: Users },
           { id: 'stats', label: 'Imibare (Member Stats)', icon: BarChart3 },
-          { id: 'logs', label: 'Ubugenzuzi (Logs)', icon: Clock },
+          { id: 'logs', label: 'Admin Audit Log (Ubugenzuzi)', icon: Shield },
           { id: 'branding', label: 'Ibirango & Logo', icon: Palette },
           { id: 'donations', label: 'Inkunga (MoMo)', icon: HeartHandshake },
           { id: 'payments', label: 'Gateway', icon: Settings },

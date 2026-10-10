@@ -931,6 +931,19 @@ export const AdminSongsTab: React.FC<AdminSongsTabProps> = ({
                   </div>
                 </div>
               </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Dosiye ya PDF y'Amagambo (Lyrics PDF URL - Optional)
+                </label>
+                <input
+                  type="text"
+                  value={editingSong.lyrics_pdf_url || ''}
+                  onChange={e => setEditingSong({ ...editingSong, lyrics_pdf_url: e.target.value })}
+                  placeholder="https://... cyangwa /uploads/..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-[11px] text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-900"
+                />
+              </div>
             </div>
 
             {/* Modal Bottom Buttons (Requirement 4: SAVE SONG, Requirement 5: SAVE CHANGES) */}

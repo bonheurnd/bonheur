@@ -105,11 +105,14 @@ export interface Song {
   shares_count?: number;
   is_favorite?: boolean;
   has_audio?: boolean;
+  has_pdf?: boolean;
   audio_count?: number;
   comments_count?: number;
   lyrics?: string;
   solfa_notation?: string;
   language?: string;
+  lyrics_pdf_url?: string;
+  lyrics_pdf_filename?: string;
   audio_tracks?: AudioTrack[];
   is_locked?: boolean;
   created_at?: string;

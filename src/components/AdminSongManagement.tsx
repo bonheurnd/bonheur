@@ -119,6 +119,8 @@ interface SongFormData {
   language: string;
   lyrics: string;
   solfa_notation: string;
+  lyrics_pdf_url?: string;
+  lyrics_pdf_filename?: string;
 }
 
 const DEFAULT_FORM_DATA: SongFormData = {
@@ -133,6 +135,8 @@ const DEFAULT_FORM_DATA: SongFormData = {
   language: 'Kinyarwanda',
   lyrics: '',
   solfa_notation: '',
+  lyrics_pdf_url: '',
+  lyrics_pdf_filename: '',
 };
 
 interface FormValidationResult {
@@ -580,6 +584,8 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
       language: song.language || 'Kinyarwanda',
       lyrics: song.lyrics || '',
       solfa_notation: song.solfa_notation || '',
+      lyrics_pdf_url: song.lyrics_pdf_url || '',
+      lyrics_pdf_filename: song.lyrics_pdf_filename || '',
     });
   };
 
@@ -1314,6 +1320,45 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
                           <span>{addValidationErrors.lyrics}</span>
                         </p>
                       )}
+                    </div>
+                  </div>
+
+                  {/* SECTION 4: LYRICS PDF */}
+                  <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1 border-b border-slate-200">
+                      <FileText className="w-4 h-4 text-rose-700" />
+                      <span>4. Dosiye ya PDF y'Amagambo (Lyrics PDF - Optional)</span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-500">
+                      Shyiraho link cyangwa izina rya dosiye ya PDF y'amagambo cyangwa amanota ya Sol-fa.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Link ya PDF (URL cyangwa /uploads/...)
+                        </label>
+                        <input
+                          type="text"
+                          value={addForm.lyrics_pdf_url || ''}
+                          onChange={e => setAddForm({ ...addForm, lyrics_pdf_url: e.target.value })}
+                          placeholder="https://... cyangwa /uploads/..."
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:border-blue-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Izina rya Dosiye (Filename)
+                        </label>
+                        <input
+                          type="text"
+                          value={addForm.lyrics_pdf_filename || ''}
+                          onChange={e => setAddForm({ ...addForm, lyrics_pdf_filename: e.target.value })}
+                          placeholder="Urugero: Indirimbo_Lyrics.pdf"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:border-blue-900"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -2202,6 +2247,45 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
                         <span>{editValidationErrors.lyrics}</span>
                       </p>
                     )}
+                  </div>
+                </div>
+
+                {/* SECTION 4: LYRICS PDF */}
+                <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 uppercase tracking-wider pb-1 border-b border-slate-200">
+                    <FileText className="w-3.5 h-3.5 text-rose-700" />
+                    <span>4. Dosiye ya PDF y'Amagambo (Lyrics PDF)</span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500">
+                    Shyiraho link ya PDF y'amagambo n'amanota y'iyi ndirimbo abakoresha bashobora gukuramo cyangwa gucapa.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Link ya PDF (URL cyangwa /uploads/...)
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.lyrics_pdf_url || ''}
+                        onChange={e => setEditForm({ ...editForm, lyrics_pdf_url: e.target.value })}
+                        placeholder="https://... cyangwa /uploads/..."
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:border-blue-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Izina rya Dosiye (Filename)
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.lyrics_pdf_filename || ''}
+                        onChange={e => setEditForm({ ...editForm, lyrics_pdf_filename: e.target.value })}
+                        placeholder="Urugero: Indirimbo_Lyrics.pdf"
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:border-blue-900"
+                      />
+                    </div>
                   </div>
                 </div>
 

@@ -315,15 +315,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5 w-full">
             <button
               onClick={() => onNavigateToTab('songs')}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-bold text-xs shadow-lg transition-transform active:scale-95 cursor-pointer"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-bold text-xs shadow-lg transition-all active:scale-95 cursor-pointer hover:shadow-amber-500/25"
             >
               <BookOpen className="w-4 h-4" />
-              <span>Indirimbo ({songs.length > 0 ? `${songs.length} Songs` : (choirInfo.songs_badge_text ? `${choirInfo.songs_badge_text} Songs` : '92 Songs')})</span>
+              <span>Indirimbo ({songs.length > 0 ? songs.length : 92})</span>
             </button>
 
             <button
               onClick={() => onNavigateToTab('support')}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold text-xs border border-white/20 shadow-sm transition-transform active:scale-95"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold text-xs border border-white/20 shadow-sm transition-transform active:scale-95 cursor-pointer"
             >
               <HeartHandshake className="w-4 h-4 text-rose-400" />
               <span>Gushyigikira (Support)</span>
@@ -341,19 +341,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               type="text"
               value={homeSearch}
               onChange={e => setHomeSearch(e.target.value)}
-              placeholder="Shakisha indirimbo (nimero cyangwa umutwe)..."
-              className="w-full pl-10 pr-10 py-2.5 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200/80 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-900 transition-all"
+              placeholder={`Shakisha mu ndirimbo ${songs.length > 0 ? songs.length : 92} (nimero cyangwa umutwe)...`}
+              className="w-full pl-10 pr-12 py-2.5 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200/80 rounded-xl text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-900 transition-all"
             />
             {homeSearch ? (
               <button
                 onClick={() => setHomeSearch('')}
-                className="absolute right-3 p-1 text-slate-400 hover:text-slate-700"
+                className="absolute right-3 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             ) : (
               <span className="absolute right-3 text-[10px] sm:text-[11px] font-bold text-blue-950 bg-amber-400/25 border border-amber-400/50 px-2 py-0.5 rounded-full shadow-2xs font-mono tracking-tight flex items-center gap-1">
-                {songs.length > 0 ? `${songs.length}` : (choirInfo.songs_badge_text || '92')}
+                {songs.length > 0 ? `${songs.length}` : '92'}
               </span>
             )}
           </div>
@@ -421,7 +421,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               Indirimbo za La Lumiere Choir
             </h2>
             <p className="text-xs text-blue-200 mt-0.5">
-              Igitabo cyuzuye kirimo indirimbo zose 92 zateguwe mu byiciro 4 by'ingenzi.
+              Igitabo cyuzuye kirimo indirimbo zose {songs.length > 0 ? songs.length : 92} zateguwe mu byiciro {categories.length > 0 ? categories.length : 4} by'ingenzi.
             </p>
           </div>
         </div>
@@ -430,7 +430,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           onClick={() => onNavigateToTab('songs')}
           className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 shrink-0"
         >
-          <span>Fungura Indirimbo Zose (92)</span>
+          <span>Fungura Indirimbo Zose ({songs.length > 0 ? songs.length : 92})</span>
           <ChevronRight className="w-4 h-4" />
         </button>
       </section>
@@ -444,8 +444,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               Ibyiciro by'Indirimbo (4 Song Categories)
             </h2>
           </div>
-          <span className="text-xs font-semibold text-slate-500">
-            Indirimbo 92
+          <span className="text-xs font-semibold text-slate-500 font-mono">
+            Indirimbo {songs.length > 0 ? songs.length : 92}
           </span>
         </div>
 

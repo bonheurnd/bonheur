@@ -97,6 +97,8 @@ export function initDatabase() {
       release_date TEXT,
       description TEXT,
       cover_image_url TEXT,
+      lyrics_pdf_url TEXT,
+      lyrics_pdf_filename TEXT,
       access_password_hash TEXT, -- Hashed password for unreleased protected songs
       views_count INTEGER DEFAULT 0,
       shares_count INTEGER DEFAULT 0,
@@ -483,6 +485,8 @@ export function initDatabase() {
 
   safeAddColumn('users', 'is_disabled INTEGER DEFAULT 0');
   safeAddColumn('users', 'choir_voice TEXT'); // 'Soprano', 'Alto', 'Tenor', 'Bass', 'Musician', 'Director'
+  safeAddColumn('songs', 'lyrics_pdf_url TEXT');
+  safeAddColumn('songs', 'lyrics_pdf_filename TEXT');
   safeAddColumn('users', 'choir_role TEXT'); // 'Member', 'Voice Leader', 'Pianist', 'Conductor', etc.
   safeAddColumn('users', 'bio TEXT');
   safeAddColumn('users', 'share_directory INTEGER DEFAULT 1'); // 1 = opted-in to member directory, 0 = opted-out

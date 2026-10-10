@@ -30,6 +30,14 @@ import {
   Check,
   Download,
   CheckCircle2,
+  FileText,
+  Printer,
+  UploadCloud,
+  X,
+  AlertCircle,
+  Eye,
+  FileCheck,
+  Link as LinkIcon,
 } from 'lucide-react';
 
 interface SongDetailScreenProps {
@@ -70,6 +78,122 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
   const [isDownloaded, setIsDownloaded] = useState<boolean>(false);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [downloadSuccessToast, setDownloadSuccessToast] = useState<string | null>(null);
+
+  // PDF Lyrics state
+  const [showPdfModal, setShowPdfModal] = useState(false);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [showAdminPdfModal, setShowAdminPdfModal] = useState(false);
+  const [adminUploadMode, setAdminUploadMode] = useState<'upload' | 'link'>('upload');
+  const [adminPdfFile, setAdminPdfFile] = useState<File | null>(null);
+  const [adminPdfUrl, setAdminPdfUrl] = useState('');
+  const [adminPdfFilename, setAdminPdfFilename] = useState('');
+  const [isSubmittingPdf, setIsSubmittingPdf] = useState(false);
+  const [pdfSuccessMessage, setPdfSuccessMessage] = useState<string | null>(null);
+  const [pdfErrorMessage, setPdfErrorMessage] = useState<string | null>(null);
+
+  const handleDownloadPdf = () => {
+    if (!song) return;
+    const link = document.createElement('a');
+    link.href = `/api/songs/${song.id}/pdf?download=1`;
+    link.download = song.lyrics_pdf_filename || `La_Lumiere_No_${song.song_number || song.id}_Lyrics.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handlePrintPdf = () => {
+    if (!song) return;
+    const printUrl = `/api/songs/${song.id}/pdf?action=print`;
+    window.open(printUrl, '_blank');
+  };
+
+  const handleSavePdf = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!song) return;
+
+    try {
+      setIsSubmittingPdf(true);
+      setPdfErrorMessage(null);
+      const token = localStorage.getItem('lalumiere_token');
+
+      let res: Response;
+      if (adminUploadMode === 'upload') {
+        if (!adminPdfFile) {
+          setPdfErrorMessage('Hitamo idosiye ya PDF ibanza (Select a PDF file)');
+          setIsSubmittingPdf(false);
+          return;
+        }
+        const formData = new FormData();
+        formData.append('file', adminPdfFile);
+        res = await fetch(`/api/admin/songs/${song.id}/lyrics-pdf`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        });
+      } else {
+        if (!adminPdfUrl.trim()) {
+          setPdfErrorMessage('Injiza link ya PDF (Enter a valid PDF URL)');
+          setIsSubmittingPdf(false);
+          return;
+        }
+        res = await fetch(`/api/admin/songs/${song.id}/lyrics-pdf`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            pdf_url: adminPdfUrl.trim(),
+            filename: adminPdfFilename.trim() || undefined,
+          }),
+        });
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        setSong(prev =>
+          prev ? { ...prev, lyrics_pdf_url: data.lyrics_pdf_url, lyrics_pdf_filename: data.lyrics_pdf_filename } : null
+        );
+        setPdfSuccessMessage('PDF yashyizwemo neza!');
+        setTimeout(() => setPdfSuccessMessage(null), 3000);
+        setShowAdminPdfModal(false);
+        setAdminPdfFile(null);
+        setAdminPdfUrl('');
+        setAdminPdfFilename('');
+        window.dispatchEvent(new CustomEvent('songs_updated'));
+      } else {
+        const err = await res.json();
+        setPdfErrorMessage(err.error || 'Habaye ikibazo mu kubika PDF');
+      }
+    } catch (err: any) {
+      setPdfErrorMessage(err.message || 'Habaye ikibazo cya interineti');
+    } finally {
+      setIsSubmittingPdf(false);
+    }
+  };
+
+  const handleDeletePdf = async () => {
+    if (!song || !confirm('Uremeza ko ushaka gukuraho PDF?')) return;
+    try {
+      setIsSubmittingPdf(true);
+      const token = localStorage.getItem('lalumiere_token');
+      const res = await fetch(`/api/admin/songs/${song.id}/lyrics-pdf`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setSong(prev => (prev ? { ...prev, lyrics_pdf_url: undefined, lyrics_pdf_filename: undefined } : null));
+        setPdfSuccessMessage('PDF yakuweho neza!');
+        setTimeout(() => setPdfSuccessMessage(null), 3000);
+        setShowAdminPdfModal(false);
+        window.dispatchEvent(new CustomEvent('songs_updated'));
+      }
+    } catch {
+      alert('Habaye ikibazo');
+    } finally {
+      setIsSubmittingPdf(false);
+    }
+  };
 
   const checkOfflineStatus = async () => {
     const downloaded = await isSongDownloadedOffline(songId);
@@ -516,6 +640,24 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
             <Share2 className="w-3.5 h-3.5 text-slate-600" />
             <span className="hidden sm:inline">Sangiza</span>
           </button>
+
+          {/* PDF Lyrics Button */}
+          <button
+            onClick={() => {
+              setShowPdfModal(true);
+              setShowPdfPreview(false);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all active:scale-95 ${
+              song.lyrics_pdf_url
+                ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100 shadow-2xs'
+                : 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700'
+            }`}
+            title="Kuramo cyangwa Capa amagambo muri PDF (Download/Print PDF)"
+            aria-label="PDF Lyrics"
+          >
+            <FileText className={`w-3.5 h-3.5 ${song.lyrics_pdf_url ? 'text-rose-600' : 'text-slate-500'}`} />
+            <span>PDF</span>
+          </button>
         </div>
       </div>
 
@@ -930,6 +1072,358 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
           )}
         </div>
       </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* PDF LYRICS MODAL */}
+      {/* ------------------------------------------------------------- */}
+      {showPdfModal && song && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div
+            className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 p-5 sm:p-6 space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-extrabold text-blue-900 bg-blue-50 px-2 py-0.5 rounded-md">
+                      No. {song.song_number || '—'}
+                    </span>
+                    {song.category_name && (
+                      <span className="text-[11px] font-bold text-slate-500">
+                        {song.category_name}
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="text-lg font-extrabold text-slate-900 font-serif truncate mt-1">
+                    {song.title}
+                  </h2>
+                  <p className="text-xs text-slate-500 truncate">
+                    {song.composer || 'La Lumiere Choir'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowPdfModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Status Card */}
+            <div className={`p-4 rounded-2xl border ${
+              song.lyrics_pdf_url
+                ? 'bg-rose-50/60 border-rose-200 text-rose-950'
+                : 'bg-blue-50/60 border-blue-200 text-blue-950'
+            }`}>
+              <div className="flex items-start gap-3">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                  song.lyrics_pdf_url ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {song.lyrics_pdf_url ? <FileCheck className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-xs font-bold">
+                    {song.lyrics_pdf_url
+                      ? 'Dosiye ya PDF Yemejwe (Attached PDF Document)'
+                      : 'Inyandiko y\'Umwimerere ya PDF (Choir Formatted PDF)'}
+                  </h4>
+                  <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                    {song.lyrics_pdf_url ? (
+                      <>
+                        Idosiye yashyizweho n'ubuyobozi bwa Korali:{' '}
+                        <span className="font-semibold text-slate-800 truncate block mt-0.5">
+                          {song.lyrics_pdf_filename || 'Amagambo_y_Indirimbo.pdf'}
+                        </span>
+                      </>
+                    ) : (
+                      'Inyandiko y\'umwimerere ifite amagambo yose, amanota ya Sol-fa, n\'ibitero byose by\'indirimbo.'
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons: Download & Print */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+              <button
+                onClick={handleDownloadPdf}
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-blue-900 hover:bg-blue-950 text-white rounded-2xl text-xs sm:text-sm font-bold shadow-md transition-all active:scale-95"
+              >
+                <Download className="w-4 h-4" />
+                <span>Kuramo PDF (Download)</span>
+              </button>
+
+              <button
+                onClick={handlePrintPdf}
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-2xl text-xs sm:text-sm font-bold shadow-md transition-all active:scale-95"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Gucapa PDF (Print)</span>
+              </button>
+            </div>
+
+            {/* Embedded Preview Toggle */}
+            <div className="pt-2">
+              <button
+                onClick={() => setShowPdfPreview(!showPdfPreview)}
+                className="w-full py-2 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Eye className="w-3.5 h-3.5 text-slate-500" />
+                <span>{showPdfPreview ? 'Hisha Inyandiko (Hide Preview)' : 'Reba Inyandiko Hano (Preview PDF)'}</span>
+              </button>
+
+              {showPdfPreview && (
+                <div className="mt-3 rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 shadow-inner">
+                  <iframe
+                    src={`/api/songs/${song.id}/pdf`}
+                    title={`PDF preview ya ${song.title}`}
+                    className="w-full h-80"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Admin Management Section */}
+            {isAdmin && (
+              <div className="mt-4 pt-4 border-t border-slate-100 bg-slate-50/70 -mx-5 -mb-5 sm:-mx-6 sm:-mb-6 p-4 sm:p-5 rounded-b-3xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-extrabold text-blue-950 uppercase tracking-wider">
+                    Ubuyobozi (Admin Actions)
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    Shyiraho cyangwa hindura PDF
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setShowPdfModal(false);
+                      setAdminPdfUrl(song.lyrics_pdf_url?.startsWith('http') ? song.lyrics_pdf_url : '');
+                      setAdminPdfFilename(song.lyrics_pdf_filename || '');
+                      setAdminPdfFile(null);
+                      setShowAdminPdfModal(true);
+                    }}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-bold transition-colors"
+                  >
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    <span>
+                      {song.lyrics_pdf_url ? 'Hindura Dosiye ya PDF' : 'Shyiraho Dosiye ya PDF'}
+                    </span>
+                  </button>
+
+                  {song.lyrics_pdf_url && (
+                    <button
+                      onClick={handleDeletePdf}
+                      disabled={isSubmittingPdf}
+                      className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-colors"
+                    >
+                      <span>Siba</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* ADMIN UPLOAD/LINK PDF MODAL */}
+      {/* ------------------------------------------------------------- */}
+      {showAdminPdfModal && song && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div
+            className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 p-5 sm:p-6 space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-blue-900 text-amber-300 flex items-center justify-center font-bold text-sm shrink-0">
+                  <UploadCloud className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-extrabold text-slate-900 font-serif truncate">
+                    Shyiraho PDF y'Amagambo
+                  </h3>
+                  <p className="text-xs text-slate-500 truncate">
+                    No. {song.song_number} - {song.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAdminPdfModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Mode Switch */}
+            <div className="flex rounded-xl bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminUploadMode('upload');
+                  setPdfErrorMessage(null);
+                }}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                  adminUploadMode === 'upload'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Kwinjiza Dosiye (Upload File)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminUploadMode('link');
+                  setPdfErrorMessage(null);
+                }}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                  adminUploadMode === 'link'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Gushyiraho Link (Direct URL)
+              </button>
+            </div>
+
+            {pdfErrorMessage && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{pdfErrorMessage}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSavePdf} className="space-y-4">
+              {adminUploadMode === 'upload' ? (
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Hitamo Dosiye ya PDF (.pdf) *
+                  </label>
+                  <label className="border-2 border-dashed border-slate-300 hover:border-blue-900 bg-slate-50 hover:bg-blue-50/50 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-colors group">
+                    <input
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      onChange={e => {
+                        if (e.target.files?.[0]) {
+                          setAdminPdfFile(e.target.files[0]);
+                          setPdfErrorMessage(null);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    <div className="w-12 h-12 rounded-2xl bg-white shadow-xs border border-slate-200 group-hover:border-blue-300 flex items-center justify-center text-slate-600 group-hover:text-blue-900 mb-2 transition-colors">
+                      <FileText className="w-6 h-6" />
+                    </div>
+                    {adminPdfFile ? (
+                      <div>
+                        <p className="text-xs font-extrabold text-blue-900 truncate max-w-xs">
+                          {adminPdfFile.name}
+                        </p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">
+                          {(adminPdfFile.size / 1024).toFixed(1)} KB • Kanda hano ngo uhindure
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-xs font-bold text-slate-700">
+                          Kanda hano cyangwa ukurure dosiye ya PDF
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Ubwoko bwemewe: PDF gusa (Max 25MB)
+                        </p>
+                      </div>
+                    )}
+                  </label>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Link ya Interineti (Direct PDF URL) *
+                    </label>
+                    <div className="relative">
+                      <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="url"
+                        value={adminPdfUrl}
+                        onChange={e => setAdminPdfUrl(e.target.value)}
+                        placeholder="https://example.com/indirimbo.pdf"
+                        className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-900"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Izina rya Dosiye (Filename - Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={adminPdfFilename}
+                      onChange={e => setAdminPdfFilename(e.target.value)}
+                      placeholder={`La_Lumiere_No_${song.song_number}_Lyrics.pdf`}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-900"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {song.lyrics_pdf_url && (
+                <div className="p-3 bg-slate-100 rounded-xl text-xs text-slate-600 flex items-center justify-between">
+                  <div className="min-w-0 pr-2">
+                    <span className="font-bold text-slate-800 block text-[11px]">PDF iriho ubu:</span>
+                    <span className="text-[10px] text-slate-500 truncate block">
+                      {song.lyrics_pdf_filename || song.lyrics_pdf_url}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDeletePdf}
+                    className="text-xs text-rose-600 font-bold hover:underline shrink-0"
+                  >
+                    Siba
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPdfModal(false)}
+                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-colors"
+                >
+                  Reka (Cancel)
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingPdf}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-blue-900 hover:bg-blue-950 text-white text-xs font-bold transition-all shadow-md inline-flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
+                >
+                  {isSubmittingPdf ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  <span>{isSubmittingPdf ? 'Kubika...' : 'Bika PDF'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

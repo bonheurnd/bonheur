@@ -16,6 +16,9 @@ import {
   Download,
   BarChart3,
   Activity,
+  Trash2,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { AdminMemberStats } from './AdminMemberStats';
@@ -35,6 +38,16 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled'>('all');
+
+  // Bulk Selection & Removal State
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [bulkActionModal, setBulkActionModal] = useState<{
+    isOpen: boolean;
+    action: 'disable' | 'delete';
+    count: number;
+  } | null>(null);
+  const [bulkReason, setBulkReason] = useState('');
+  const [isExecutingBulkAction, setIsExecutingBulkAction] = useState(false);
 
   // Edit Role modal
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
@@ -214,6 +227,54 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     }
   };
 
+  const toggleSelectUser = (id: string) => {
+    setSelectedUserIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedUserIds.length === filteredUsers.length) {
+      setSelectedUserIds([]);
+    } else {
+      setSelectedUserIds(filteredUsers.map(u => u.id));
+    }
+  };
+
+  const handleExecuteBulkAction = async () => {
+    if (!bulkActionModal || selectedUserIds.length === 0) return;
+    try {
+      setIsExecutingBulkAction(true);
+      const token = localStorage.getItem('lalumiere_token');
+      const res = await fetch('/api/admin/users/bulk-remove', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          userIds: selectedUserIds,
+          action: bulkActionModal.action,
+          reason: bulkReason || 'Bulk administrative removal from directory',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Bulk action failed');
+
+      setSuccessMsg(data.message || `Abanyamuryango ${selectedUserIds.length} bakozweho neza!`);
+      setTimeout(() => setSuccessMsg(''), 4500);
+      setSelectedUserIds([]);
+      setBulkActionModal(null);
+      setBulkReason('');
+      onRefresh();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Habaye ikosa mu gukora iki gikorwa');
+    } finally {
+      setIsExecutingBulkAction(false);
+    }
+  };
+
   return (
     <div className="space-y-4 animate-in fade-in duration-150">
       {/* Header & Search */}
@@ -348,6 +409,72 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       {/* Users List (Only when subView === 'members') */}
       {subView === 'members' && (
       <div className="space-y-2">
+        {/* Bulk Action Bar when users are selected */}
+        {selectedUserIds.length > 0 && (
+          <div className="bg-slate-900 text-white rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg border border-slate-700 animate-in fade-in duration-150">
+            <div className="flex items-center gap-2.5">
+              <span className="w-6 h-6 rounded-lg bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center">
+                {selectedUserIds.length}
+              </span>
+              <span className="text-xs font-bold text-slate-100">
+                Abanyamuryango batoranyijwe (Selected Users)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setBulkActionModal({ isOpen: true, action: 'disable', count: selectedUserIds.length })}
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <UserX className="w-3.5 h-3.5" />
+                <span>Hagarika Bose (Bulk Disable)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBulkActionModal({ isOpen: true, action: 'delete', count: selectedUserIds.length })}
+                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Siba Burundu (Bulk Delete)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedUserIds([])}
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+              >
+                Reka Byose
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Select All Checkbox Header */}
+        {filteredUsers.length > 0 && (
+          <div className="flex items-center justify-between px-2 py-1 text-xs text-slate-500 font-semibold bg-white/60 rounded-xl border border-slate-100">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={selectedUserIds.length === filteredUsers.length && filteredUsers.length > 0}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded text-blue-900 border-slate-300 focus:ring-blue-900 cursor-pointer"
+              />
+              <span>
+                {selectedUserIds.length === filteredUsers.length && filteredUsers.length > 0
+                  ? 'Kureka Byose (Deselect All)'
+                  : `Hitamo Bose (${filteredUsers.length} Members)`}
+              </span>
+            </label>
+            {selectedUserIds.length > 0 && (
+              <span className="text-[11px] text-amber-700 font-bold">
+                {selectedUserIds.length} muri {filteredUsers.length} batoranyijwe
+              </span>
+            )}
+          </div>
+        )}
+
         {filteredUsers.length === 0 ? (
           <div className="bg-white rounded-3xl p-8 text-center text-xs text-slate-400 border border-slate-200/80">
             Nta mukoresha ubonywe uhuye n'ibyo ushakishije
@@ -355,6 +482,7 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
         ) : (
           filteredUsers.map(u => {
             const isDisabled = u.is_disabled === 1;
+            const isSelected = selectedUserIds.includes(u.id);
             const isAdmin = ['super_admin', 'admin', 'content_admin', 'moderator'].includes(
               u.role
             );
@@ -362,9 +490,20 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
             return (
               <div
                 key={u.id}
-                className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                className={`bg-white rounded-2xl p-4 border transition-all shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                  isSelected ? 'border-amber-400 ring-2 ring-amber-400/20 bg-amber-50/10' : 'border-slate-200/80'
+                }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
+                  {/* Row Checkbox */}
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelectUser(u.id)}
+                    className="w-4 h-4 rounded text-blue-900 border-slate-300 focus:ring-blue-900 cursor-pointer shrink-0"
+                    aria-label={`Hitamo ${u.full_name}`}
+                  />
+
                   <div
                     className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs shrink-0 ${
                       isAdmin
@@ -576,6 +715,75 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
         onConfirm={handleToggleStatus}
         onCancel={() => setToggleStatusUser(null)}
       />
+
+      {/* BULK ACTION CONFIRMATION MODAL */}
+      {bulkActionModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600 pb-2 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm text-slate-900">
+                  {bulkActionModal.action === 'delete'
+                    ? `Kwemeza Gusiba Abakoresha ${bulkActionModal.count} Burundu`
+                    : `Kwemeza Guhagarika Abakoresha ${bulkActionModal.count}`}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Iki gikorwa cyandikwa muri Audit Log y'umutekano
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {bulkActionModal.action === 'delete'
+                ? `Witeguye gusiba burundu abakoresha ${bulkActionModal.count}? Amakuru yabo n'ibikorwa byabo bizasibwa burundu kandi ntibizashobora kugarurwa.`
+                : `Witeguye guhagarika kwinjira kw'abakoresha ${bulkActionModal.count}? Ntibazashobora kongera kwinjira kugeza bakomorewe.`}
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Impamvu y'iki gikorwa (Audit Trail Reason):
+              </label>
+              <input
+                type="text"
+                value={bulkReason}
+                onChange={e => setBulkReason(e.target.value)}
+                placeholder="Urugero: Isuku muri konti zidafite ibikorwa..."
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-900"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setBulkActionModal(null)}
+                disabled={isExecutingBulkAction}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Reka (Cancel)
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteBulkAction}
+                disabled={isExecutingBulkAction}
+                className={`px-4 py-2 rounded-xl text-xs font-bold text-white shadow-md cursor-pointer transition-all ${
+                  bulkActionModal.action === 'delete'
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-amber-600 hover:bg-amber-700'
+                }`}
+              >
+                {isExecutingBulkAction
+                  ? 'Birakorwa...'
+                  : bulkActionModal.action === 'delete'
+                  ? 'Yego, Siba Burundu'
+                  : 'Yego, Hagarika'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
