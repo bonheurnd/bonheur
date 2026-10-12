@@ -19,16 +19,18 @@ export interface ParsedSongItem {
 export interface UpsertSongResult {
   title: string;
   category: SongCategoryName;
-  action: 'inserted' | 'updated';
+  action: 'inserted' | 'updated' | 'skipped';
   song_id: string;
   song_number?: string;
   lyrics_length: number;
+  reason?: string;
 }
 
 export interface UpsertSongsReport {
   totalProcessed: number;
   insertedCount: number;
   updatedCount: number;
+  skippedCount: number;
   songs: UpsertSongResult[];
 }
 
@@ -360,10 +362,13 @@ export function upsertSongRecords(
     }
   }
 
+  const skippedCount = results.filter(r => r.action === 'skipped').length;
+
   return {
     totalProcessed: results.length,
     insertedCount,
     updatedCount,
+    skippedCount,
     songs: results
   };
 }
