@@ -315,15 +315,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5 w-full">
             <button
               onClick={() => onNavigateToTab('songs')}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-bold text-xs shadow-lg transition-all active:scale-95 cursor-pointer hover:shadow-amber-500/25"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-bold text-xs shadow-lg transition-all active:scale-95 cursor-pointer hover:shadow-amber-500/25"
             >
               <BookOpen className="w-4 h-4" />
               <span>Indirimbo ({songs.length > 0 ? songs.length : 92})</span>
             </button>
 
             <button
+              onClick={() => onNavigateToTab('ai')}
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-800 hover:bg-blue-700 text-amber-300 rounded-xl font-bold text-xs shadow-md border border-blue-600 transition-all active:scale-95 cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>AI Assistant</span>
+            </button>
+
+            <button
               onClick={() => onNavigateToTab('support')}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold text-xs border border-white/20 shadow-sm transition-transform active:scale-95 cursor-pointer"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold text-xs border border-white/20 shadow-sm transition-transform active:scale-95 cursor-pointer"
             >
               <HeartHandshake className="w-4 h-4 text-rose-400" />
               <span>Gushyigikira (Support)</span>

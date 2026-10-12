@@ -48,7 +48,9 @@ import { AdminContactTab } from './admin/AdminContactTab';
 import { AdminSocialMediaTab } from './admin/AdminSocialMediaTab';
 import { AdminDonationSettingsTab } from './admin/AdminDonationSettingsTab';
 import { AdminExportTab } from './admin/AdminExportTab';
+import { AdminAiSettingsTab } from './admin/AdminAiSettingsTab';
 import { safeFetchJson } from '../utils/api';
+import { Sparkles } from 'lucide-react';
 
 interface AdminDashboardProps {
   onSelectSong: (songId: string) => void;
@@ -78,6 +80,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     | 'donations'
     | 'payments'
     | 'export'
+    | 'ai'
   >('overview');
 
   // Stats & Metrics
@@ -312,6 +315,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'stats', label: 'Imibare (Member Stats)', icon: BarChart3 },
           { id: 'logs', label: 'Admin Audit Log (Ubugenzuzi)', icon: Shield },
           { id: 'branding', label: 'Ibirango & Logo', icon: Palette },
+          { id: 'ai', label: 'AI Assistant (GenAI)', icon: Sparkles },
           { id: 'donations', label: 'Inkunga (MoMo)', icon: HeartHandshake },
           { id: 'payments', label: 'Gateway', icon: Settings },
           { id: 'export', label: 'Kwohereza (CSV Export)', icon: Download },
@@ -675,6 +679,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* 10. DATA EXPORT / CSV EXPORT CMS */}
       {activeTab === 'export' && <AdminExportTab />}
+
+      {/* 11. AI ASSISTANT SETTINGS */}
+      {activeTab === 'ai' && <AdminAiSettingsTab />}
     </div>
   );
 };

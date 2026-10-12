@@ -26,6 +26,7 @@ import {
   type SongRecordInput,
   type ManageSongRecordResult
 } from './server/songDocumentParser.js';
+import { manageSong } from './server/songService.js';
 import {
   parseSixteenSongs,
   upsertSixteenSongs,
@@ -57,6 +58,14 @@ import { initiateRwandaPayment, verifyPaymentTransaction, validateRwandaPhoneNum
 import { RwandaPaymentGatewayService, validateAndNormalizeRwandaPhone } from './server/rwandaPaymentGateway.js';
 import { paymentsRouter } from './server/payments.js';
 import { sendPasswordResetEmail, isEmailServiceConfigured, getEmailConfig } from './server/email.js';
+import {
+  getAiAssistantConfig,
+  updateAiAssistantConfig,
+  generateChatResponse,
+  checkRateLimit,
+  searchChoirDatabase,
+  SUPPORTED_MODELS
+} from './server/aiService.js';
 import {
   exportRouter,
   getMembersData,
@@ -3133,12 +3142,42 @@ app.post('/api/admin/songs/parse-and-upsert', requireAdmin, upload.single('file'
 // 4. Service endpoint to manage a song record (upsert based on title unique identifier)
 const handleManageSongRecord = (req: AuthRequest, res: any) => {
   try {
+    // Accepts single song object: { song: {...} } or req.body directly
+    // Or accepts an array of parsed song objects: { songs: [...] } or array directly
+    if (Array.isArray(req.body) || (req.body && Array.isArray(req.body.songs))) {
+      const songsList = Array.isArray(req.body) ? req.body : req.body.songs;
+      if (songsList.length === 0) {
+        return res.status(400).json({ error: 'Nta ndirimbo zatanzwe (No songs provided in array)' });
+      }
+      const report = upsertSongRecords(songsList, db);
+      if (req.user) {
+        logActivity(
+          req.user.id,
+          req.user.name,
+          req.user.role,
+          'UPSERT_SONGS',
+          'songs',
+          'batch',
+          `Upserted ${report.totalProcessed} parsed songs (inserted: ${report.insertedCount}, updated: ${report.updatedCount}) via unique title check`
+        );
+      }
+      broadcastRealtimeEvent('songs_updated', {
+        action: 'batch_upsert',
+        insertedCount: report.insertedCount,
+        updatedCount: report.updatedCount
+      });
+      return res.json({
+        success: true,
+        report
+      });
+    }
+
     const songInput = req.body.song || req.body;
     if (!songInput || typeof songInput !== 'object' || !songInput.title) {
       return res.status(400).json({ error: 'Nta ndirimbo cyangwa umutwe watanzwe (Song object with title is required)' });
     }
 
-    const result = upsertSongRecord(songInput, db);
+    const result = manageSong(songInput, db);
 
     if (req.user) {
       logActivity(
@@ -3170,8 +3209,10 @@ const handleManageSongRecord = (req: AuthRequest, res: any) => {
 
 app.post('/api/admin/songs/manage-record', requireAdmin, handleManageSongRecord);
 app.post('/api/admin/songs/upsert-record', requireAdmin, handleManageSongRecord);
+app.post('/api/admin/songs/upsert', requireAdmin, handleManageSongRecord);
 app.post('/api/songs/manage-record', optionalAuth, handleManageSongRecord);
 app.post('/api/songs/upsert-record', optionalAuth, handleManageSongRecord);
+app.post('/api/songs/upsert', optionalAuth, handleManageSongRecord);
 
 // Import songs from CSV, Word (.docx), text file, or JSON array
 app.post('/api/admin/songs/import', requireAdmin, upload.single('file'), async (req: AuthRequest, res) => {
@@ -6196,6 +6237,100 @@ app.post('/api/admin/upload', requireAdmin, upload.single('file'), (req: AuthReq
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+// -------------------------------------------------------------
+// LA LUMIERE AI ASSISTANT API ENDPOINTS
+// -------------------------------------------------------------
+
+// 1. Get AI Assistant public status & configuration
+app.get('/api/ai/config', (req, res) => {
+  try {
+    const config = getAiAssistantConfig();
+    res.json({
+      success: true,
+      enabled: config.enabled,
+      model: config.model,
+      hasApiKey: config.hasApiKey,
+      supportedModels: SUPPORTED_MODELS,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve AI configuration' });
+  }
+});
+
+// 2. Chat with La Lumiere AI Assistant
+app.post('/api/ai/chat', async (req, res) => {
+  try {
+    // Rate limit check
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
+    const rateCheck = checkRateLimit(clientIp, 25, 60000);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        error: 'Ubusabe buri hejuru y\'urugero rwemewe (Too many requests). Nyamuneka gerageza mukanya gato.',
+      });
+    }
+
+    const { messages, message } = req.body;
+    let chatMessages: Array<{ role: 'user' | 'assistant' | 'model'; content: string }> = [];
+
+    if (Array.isArray(messages) && messages.length > 0) {
+      chatMessages = messages
+        .filter((m: any) => m && typeof m.content === 'string' && m.content.trim())
+        .map((m: any) => ({
+          role: m.role === 'model' || m.role === 'assistant' ? 'assistant' : 'user',
+          content: String(m.content).slice(0, 2000), // Request size safety limit
+        }));
+    } else if (typeof message === 'string' && message.trim()) {
+      chatMessages = [{ role: 'user', content: message.trim().slice(0, 2000) }];
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Ubutumwa ntibwabonetse (No message or messages array provided)',
+      });
+    }
+
+    // Limit conversation history length to avoid token explosion
+    const truncatedHistory = chatMessages.slice(-10);
+
+    const result = await generateChatResponse(truncatedHistory, clientIp);
+    return res.json({
+      success: true,
+      reply: result.text,
+      matchedSongs: result.matchedSongs || [],
+    });
+  } catch (err: any) {
+    console.error('[AI Chat API Error]:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Habaye ikosa ryo gutunganya ubusabe bwa AI: ' + (err?.message || 'Server error'),
+    });
+  }
+});
+
+// 3. Admin settings update for AI assistant
+app.put('/api/admin/ai/settings', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { enabled, model } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'Enabled must be a boolean' });
+    }
+
+    updateAiAssistantConfig(enabled, model);
+
+    // Audit log
+    db.prepare("INSERT INTO audit_logs (id, user_id, action, resource, details) VALUES (?, ?, 'UPDATE_AI_SETTINGS', 'ai_assistant', ?)")
+      .run('log_' + Date.now(), req.user!.id, `AI Assistant set to enabled=${enabled}, model=${model || 'default'}`);
+
+    res.json({
+      success: true,
+      message: 'Igenamiterere rya AI Assistant ryahinduwe neza (AI settings updated successfully)',
+      config: getAiAssistantConfig(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to update AI assistant settings' });
   }
 });
 

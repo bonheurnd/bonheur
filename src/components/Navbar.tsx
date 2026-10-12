@@ -3,7 +3,7 @@ import { ChoirLogo } from './ChoirLogo';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useAuth } from '../context/AuthContext';
 import { useBranding } from '../context/BrandingContext';
-import { Search, Bell, User as UserIcon, Shield, X, Check } from 'lucide-react';
+import { Search, Bell, User as UserIcon, Shield, X, Check, Sparkles } from 'lucide-react';
 import { NotificationItem } from '../types';
 
 interface NavbarProps {
@@ -88,6 +88,21 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center gap-1.5 sm:gap-2">
           {/* PWA Install Button */}
           <PWAInstallButton />
+
+          {/* AI Assistant Button */}
+          <button
+            onClick={() => setActiveTab('ai')}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-bold transition-all active:scale-90 ${
+              activeTab === 'ai'
+                ? 'bg-blue-900 text-white shadow-xs'
+                : 'text-blue-950 bg-amber-400/90 hover:bg-amber-400 shadow-2xs'
+            }`}
+            title="La Lumiere AI Assistant (Ubufasha bwa AI)"
+            aria-label="AI Assistant"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-blue-950" />
+            <span className="hidden sm:inline font-sans">AI Assistant</span>
+          </button>
 
           <button
             onClick={onOpenSearch}
