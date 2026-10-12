@@ -21,6 +21,11 @@ import {
   type ParsedSongItem
 } from './server/songDocumentParser.js';
 import {
+  parseSixteenSongs,
+  upsertSixteenSongs,
+  RAW_16_SONGS_DOCUMENT_TEXT
+} from './server/parse16SongsUtility.js';
+import {
   generateToken,
   generatePasswordResetToken,
   verifyPasswordResetToken,
@@ -1718,6 +1723,62 @@ app.get(['/api/songs/categories', '/api/categories'], (req, res) => {
     res.json(categories);
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch categories' });
+  }
+});
+
+// Parse the 16 songs JSON from the choir document text
+app.get('/api/songs/parse-16-songs', (req, res) => {
+  try {
+    const songs = parseSixteenSongs();
+    res.json({
+      success: true,
+      count: songs.length,
+      songs
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to parse 16 songs' });
+  }
+});
+
+// Upsert the 16 songs with title existence check to ensure zero duplicates
+app.post(['/api/songs/upsert-16-songs', '/api/admin/songs/upsert-16-songs'], optionalAuth, async (req: AuthRequest, res) => {
+  try {
+    const documentText = req.body && typeof req.body.text === 'string' && req.body.text.trim()
+      ? req.body.text
+      : undefined;
+
+    const result = upsertSixteenSongs(documentText, db);
+
+    if (req.user) {
+      logActivity(
+        req.user.id,
+        req.user.name,
+        req.user.role,
+        'UPSERT_16_SONGS',
+        'songs',
+        'batch',
+        `Upserted 16 songs (inserted: ${result.report.insertedCount}, updated: ${result.report.updatedCount})`
+      );
+    }
+
+    broadcastRealtimeEvent('songs_updated', {
+      action: 'sixteen_songs_upsert',
+      count: result.parsedCount,
+      insertedCount: result.report.insertedCount,
+      updatedCount: result.report.updatedCount,
+      skippedCount: result.report.skippedCount
+    });
+
+    res.json({
+      success: true,
+      message: `Hasuzumwe indirimbo ${result.parsedCount}. Hashyizwemo nshya: ${result.report.insertedCount}, Zavuguruwe: ${result.report.updatedCount}, Zasigaye: ${result.report.skippedCount}. Nta ndirimbo yasubiwemo (Zero duplicates created).`,
+      parsedCount: result.parsedCount,
+      report: result.report,
+      songs: result.songs
+    });
+  } catch (err: any) {
+    console.error('Error in upsert-16-songs endpoint:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikosa mu kwinjiza indirimbo 16' });
   }
 });
 

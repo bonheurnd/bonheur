@@ -17,11 +17,19 @@ import {
   type DocumentImportSummary,
   type SongCategoryName
 } from './songDocumentParser.js';
+import {
+  parseSixteenSongs,
+  upsertSixteenSongs,
+  RAW_16_SONGS_DOCUMENT_TEXT
+} from './parse16SongsUtility.js';
 
 export {
   parseSongDocumentToJSON,
   upsertSongRecords,
   parseAndUpsertSongDocument,
+  parseSixteenSongs,
+  upsertSixteenSongs,
+  RAW_16_SONGS_DOCUMENT_TEXT,
   type ParsedSongItem,
   type UpsertSongResult,
   type UpsertSongsReport,

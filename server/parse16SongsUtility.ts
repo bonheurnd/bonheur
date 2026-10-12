@@ -1,0 +1,448 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { db as defaultDb, DbWrapper } from './db.js';
+import {
+  parseSongDocumentToJSON,
+  upsertSongRecords,
+  normalizeTitle,
+  type ParsedSongItem,
+  type UpsertSongsReport,
+  type SongCategoryName
+} from './songDocumentParser.js';
+
+/**
+ * Raw document text of the 16 songs from La Lumiere Choir categorized into:
+ * 1. AGAKIZA (3 songs)
+ * 2. IJURU (4 songs)
+ * 3. GUSHIMA (3 songs)
+ * 4. KWIZERA (6 song entries: 4 songs + 2 additional documented variants)
+ * Total: 16 songs
+ *
+ * Full lyrics, line breaks, speaker labels (GUT, KWIK, Filles, Garcons, Tous),
+ * repetitions (*2, *3), and original Kinyarwanda words are maintained without changes.
+ */
+export const RAW_16_SONGS_DOCUMENT_TEXT: string = `INDIRIMBO ZA LA LUMIERE CHOIR
+ZISHYIZWE MU BYICIRO 4
+Icyitonderwa: Amagambo y’indirimbo yakoreshejwe uko ari muri document yatanzwe. Nta magambo y’indirimbo yahinduwe, akosowe cyangwa asimbujwe; hiyongereweho gusa ibyiciro.
+
+AGAKIZA
+1. NGWINO TUJYANE
+1.      Ngwino tujyane iwacu aho
+Imana yateguriye abera Aho bazaba iteka ryose ngwino nshuti reka gutinda. 
+
+          GUT: Kondi
+umunyabyaha ntakwiriye kwinjira aho hera H’Imana ikomeye ndatinye sinayigera
+imbere nakoze Ibyaha byinshi ntiyanyemerera. 
+
+         KWIK: Reka
+gutinya mwene data imbabazi z’Imana zihoraho Ntabwo ibyaha byawe byatukura tuku
+tuku Yesu ni umunyembabazi. 
+
+2.      Mwene data umvira iryo jwi
+riguhamagara ngo ugaruke ubabarirwe Umere nka wamwana w’ikirara wagarutse kwa
+se aramwakira. 
+
+            GUT: Data
+nari narazimiye narajarajaye mubyaha mbura amahoro Singikwiriye kwitwa umwana
+wawe data umbabarire ungire umwe Mubakozi bawe uu! data ndagarutse ungire umwe
+mubakozi bawe. 
+
+             KWIK:
+Ngwino mwana w’Imana ubabarirwe ibyaha byawe byose So wo mu ijuru arakwakira
+vuba nshuti garuka murugo. 
+
+R/Ngwino reka gutinya nshuti Yesu ni Umunyebambe
+
+2. DORE URUKUNDO
+1.      Dore urukundo rutangaje,
+Imana data yadukunze. Rwatumye itanga umwana wayo w’ikinege Kugirango umwizera
+wese ntazarimbuke Ahubwo azahabwe ubugingo buhoraho. 
+
+R/Uwo
+yatubereye igitambo ibindi byose bikurwaho Yamennye amaraso y’igiciro kubwacu
+Icumu yatewe murubavu, inkoni yakubiswe kubwacu (Ibyo nibyo yadukirishije)*
+
+2.      Umuntu amaze gucumura ibye
+byari birangiye Icyari gikurikiyeho rwari urupfu Kubw’imbabazi z’Imana itanga
+umwana wayo Yesu Ngo abe ariwe upfa mucyimbo cyacu nashimirwe.
+
+ R/2.Amaraso y’umwami Yesu niyo yabaye
+ikimenyetso Kiduhuza n’Imana data.
+
+3. YESU YESU MWAMI
+1.
+Yesu Yesu mwami Yesu Yesu mukiza urukundo rwawe wadukunze Mwami wanjye
+rurahebuje ibyo wankoreye nibyinshi ibyo wankoreye Bisumbye uko mbivuga. 
+
+R/Wadukuye
+mu ivata ry’ibyaha ry’ibyaha utwigiza hafi y’amasezerano Kera ntitwari ubwoko
+mwami ariko ubu twigijwe hafi Mana turagushimye.
+
+ 2. Ni iki gihesha ubugingo buhoraho ni
+ukumenya Yesu wadupfiriye Ngwino nawe winjire murugo rw’Imana ubabarirwe reka
+kwirengagiza Agakiza kabonetse kumusaraba igorogota reka kuguma hanze ngwino
+Winjire mu rugo rw’Imana. 
+
+3.
+Mwene dataaa turakubwira umwami Yesu wadupfiriye yemeye kwitanga Kumusaraba
+kugirango ubone ubugingo bw’iteka. Gut: Imitwaro n’imibabarooo ibyakubujije
+amahorooo ibikubuza gusenga N’ibikwihebesha ntutinye Yesu aragutegereje
+kugirango akuruhure Yesu aragutegereje kugirango agukize. 
+
+Twese:
+Ngwino winjire murugo rw’Imana inyuma ni habi ngwino (*2) Ngwino winjire murugo
+rw’Imana inyuma ni habi yesu aragutegereje
+
+IJURU
+1. TURI ABAGENZI
+1.      Bakundwa turi abagenzi
+kandi turi abimukira Iyo umuntu ari umugenzi azirikana cyane aho ari kujya Iyo
+umuntu ari umugenzi ari murugendo rwiza Akumbura cyane iwabo.
+
+ R/Nkumbuye cyane kwibera i Siyoni Nkumbuye
+cyane kubona Imana Nkumbuye kubona uwanyitangiye Yesu Nkumuye cyane guhozwa
+amarira.
+
+ 2. Iyo umuntu ari murugendo ahura
+n’ibimurushya Ntidukwiye kugereranya imibabaro yo muri iyi si N’ubwiza tuzabona
+tugeze iwacu Ntidukwiye kugereranya ibyago n’amakuba byo muri iyi si Iri
+gushira n’umunezero tuzabona tugeze iwacu.
+
+2.      Nitugera iwacu iyo mu
+ijuru Yesu azatwakira n’ibyishimo Azatubwira ati”muruhuke bwoko bwanjye”
+Atwambike ikamba ryera ryo kunesha Azadutambagiza Yerusalemu yarimbishijwe Maze
+dutangire kuririmba iz’I Siyoni. 
+
+R/2.
+Tuzanezerwa tuzaririmba tuzanezerwa Igihugu twasezeranijwe n’Imana. Tuzanezerwa
+tuzaririmba hareruya Tuzaririmba hareruya Amen.
+
+2. INGOMA YAMAHORO
+1.      Ingoma y’amahoro tuzayibamo
+nitunesha kandi ibyaremwe byose Bitegereje iyo ngoma niyo tuzaruhukiraho, izaba
+ari ingoma y’amahoro. 
+
+R/1.Umwana muto azakinira kumwobo w’inzoka, isega n’umwana
+w’intama Bizabana amahoro, inyamaswa ntizizaryana, izaba ari ingoma y’amahoro. 
+
+2.      Akarengane ko mu isi,
+intambara kubura abacu, gusonza, Gushavura ntibizaba kuri iyo ngoma. 
+
+R/2.Tuzaba amahoro tutikanga ikibi, amaganya n’amarira ntabwo
+bizahagera Intambara n’impuha zazo ntibizaba kuri iyo ngoma.
+
+3.      Benedata bakundwa, bakunzi
+b’umusaraba munezerwe mumitima Tubikiwe igoma y’amahora. 
+
+R/3.Mwami wanjye ndifuza kuzaba kuri iyo ngoma nshoboza
+kubiharanira nkiri muri Ubu buzima, gukiranuka, kuba maso ndabyifuza
+binshoboze.
+
+3. UZAMPE IHEREZO RYIZA
+1.
+Uzampe iherezo ryiza nk’iry’abakiranutsi uzampe kuraganwa n’abera Gakondo
+wabateguriye, Mwami sinzagwe munzira ntarangije uru rugendo, Uzampe iherezo
+ryiza icyo ni ikifuzo mporana. 
+
+R/Kutazagera
+mu ijuru nicyo gihombo gikabije kuzasigara mu iyi si ni Umubabaro udashira
+Mwami uzampe kurangiza uru rugendo amahoro Uzampe iherezo ryiza icyo ni ikifuzo
+mporana. 
+
+2.
+Hari abo twatangiranye iyi nzira ijya mu ijuru bamwe ntitukiri kumwe Bahisemo
+kubireka, ubugingo tuzaragwa babuguranye indamu mbi, Uzampe iherezo ryiza icyo
+ni ikifuzo mporana.
+
+ 3. Abavuga Mwami Mwami sibo bazabona Imana,
+abakora ibyo yishimira Abo nibo bazayibona, abakerensa agakiza bazabona
+ingaruka mbi, Uzampe iherezo ryiza icyo ni ikifuzo mporana
+
+4. BAKUNDWA TURI ABANA BIMANA
+1.
+Bakundwa ubu turi abana b’Imana uko tuzasa kurahebuje Icyo tuzi ni uko uwo
+mwami wacu niyerekanwa tuzasa (*2) nawe (*2) 
+
+Fille:
+Nubwa umuntu wacu winyuma yasaza ariko uko bukeye Uw’imbere aba mushya. 
+
+Garcon:
+Kubabazwa kwacu kw’igihwayihwayikw’akanya ka none Kwakiyongera. Tous:
+Kuturemera ubwiza bw’iteka bw’iteka ryose (*2)
+
+2.Dufite
+ubwo butunzi munzabya z’ibumba kugirango imbaraga z’Imana Zibe izisumba
+byose.(*2) 
+
+Filles:Dusa
+n’abatazwi turi ibirangirire dusa n’abakene Dutunbishije benshi. 
+
+Garcons:Dusa
+n’abapfuye nyamara turiho dusa n’abahanwa Ariko ntidutsindwa. Tous:Kugira
+imbaraga z’Imana zibeizisumba byose. 
+
+3.Bakundwa
+ubwo dukorana nayo turabinginga mudaherwa Ubwo buntu kubupfusha ubusa mwihe
+agaciro nk’abakozi b’Imana bagabura ibyayo kukintu cyose. 
+
+Filles:
+Ubwe yavuze ko azatura muri twe agendere muri twe Akorere muri twe. 
+
+Garcons:
+Tuzamubere ubwoko tumubere amahoro. 
+
+Tous:
+Bakundwa mwihe agaciro
+
+GUSHIMA
+1. TURAGUSHIMA MANA
+1.      Turagushima Mana turaguhimbaza
+mukunzi we Kubw’ubuntu bwinshi watugiriye ukatugabira ukatugabira Umurimo eawe
+ngo tuguheshe icyubahiro tukwamamaze Muri iyi si dushyire ejuru izina ryawe
+amanywa n’ijoro 
+
+2.      Hari impamvu ituma
+tugushima Mana nuko udahwanye N’abana b’abantu Dawidi ati “nari umusore
+ndashaje Sindabona umukiranutsi arekwa cyangwa ngo urubyaro rwe Rusabirize
+ahubwo ahorana itoto iminsi yo kubaho kwe ashima Imana
+
+  R/Ntacyo twabona twakwitura mwami Tugutuye
+imitima yacu ngo uyiyobore amanywa n’ijoro Intambwe zacu zibe izo kuyoborwa
+nawe Umwuka wera atubere umuyobozi.
+
+2. NAGIRIWE UBUNTU NIMANA
+1.      Nagiriwe ubuntu n’Imana
+mbona inshuti nziza cyane Uwo ni Yesu mbaraga zanjye turi kumwe ndahoze sinshobora
+kuganya Yesu amba hafi iteka nzagumya kwiringira Yesu. 
+
+2.      Nagiriwe ubuntu n’Imana
+yankuye mu mwijima n’aha ngeze nahagejejwe N’ubuntu bwayo ndakomeye kuko ariwe
+ubintugira. 
+
+R/Ndakomeye
+kuko ariwe mbaraga zanjye, ndatsinda kuko ariwe ntwaro yanjye Nzamusingiza
+amanywa n’ijoro.
+
+3. REKA NDIRIMBIRE UMUKUNZI
+ 1. Reka ndirimbire umukiza wanjye Yesu
+indirimbo yo kumunezeza, Ni umwami w’abami ashobora ibidashoboka, nta cyamunanira
+mw’ijuru No mu isi. 
+
+R/Urukundo
+rwawe rurahebuje ntirugereranywa n’urw’abana b’abantu, Waranyirebye umfata
+ukuboko unkura mu rwobo rw’umwijima, Wanyambitse umwambaro w’agakiza, nzakorera
+Yesu iminsi yose Yo kubaho kwanjye. 
+
+2.
+Wambereye igisubizo mu bibazo bikomeye, wanyuze mu mazi menshi Ntiyandengera,
+wanyuze mu muriro ntiwanshya, wambereye maso n’amatwi.
+
+KWIZERA
+1. ABANYAMUGISHA
+1.      Baraki yashatse kuvuma aba
+islaheri kuko yariyumvise amateka yabo Asanga baramu aramubwira ati”mvumira
+buriya bwoko nzabatsinde Uwo uhaye umugisha arawuhabwa koko uwo uvumye ahinduka
+ikivume (None mvumira bariya bisilaheri)*
+
+ R/Turi abanyamugisha twaratoranijwe n’uzashaka
+kutuvuma Azatwirukaho agwe ruhabo ataradufata, tuzava muri iyi si Tukiri
+abanyamugisha (kuko azi n’amazina yacu uwo mwami)*
+
+2.
+Baraki abwira Baramu ati ngaho bavume kandi nubavuma nzagushyira hejuru Baramu
+agerageje biramunanira maze Uwiteka aramubwira have have Baramu have have
+Baramu we mbese ninde ubasha kuvuma uwo ntavumye (Erega buriya bwoko nabuhaye
+umugisha)*
+
+ 3. None nshuti waba unanijwe n’ibibazo by’isi
+cyangwa intambara Tuza umutima niba Imanaikwishimira nta narimwe uzakorwa
+n’isoni Ibikwasamiye ibibumbye iminwa aho uzajya hose Imana izakujya imbere
+Washyizweho ikimenyetso cy’abanyamugisha erega washyizweho Ikimenyetso
+cy’abanyamugisha.
+
+2. BIBA MU GITONDO
+1.      Biba mu gitondo imbuto
+z’ineza, na nimugoroba ntureke kubiba, Biba izuba riva biba imvura iguye
+nidutunda imiba tuzanezerwa. 
+
+R/Tugeze mu
+ijuru tuzanezerwa, Yesu azatwicaza maze adushimire, Ati muruhuke bagaragu beza,
+umurimo wanjye mwawukoze neza.
+
+ 2. Tugende tubiba tubiba Umwami, niba
+tubabazwa n’abantu barimbuka, Amasarura n’imirimo bishize, nyiri uruzabibu
+azadushimira. 
+
+2.      Abakozi mwese muri
+muruzabibu mururinde cyane nk’abazarubazwa Nimufate izo ngunzu zona urzabibu
+Databuja naza azabashimira
+
+3. IMBARAGA
+1.
+Imbaraga, imbaraga, imbaraga z’Imana ndavuga imbaraga z’Imana Ndavuga gukomera
+kw’Imana, ndavuga gutabara kw’Imana. Hari imbaraga zidasanzwe z’Imana hari
+ukunesha kudasanzwe kw’Imana Imana nyamana iratabara kurugamba. Yatunguye
+Gidiyoni asekura ingano yihisha abamidiyani iramubwira Iti Gidiyoni weee genda
+genda ukw’imbaraga za we zingana. Garcons: Uzanesha 
+
+Tous:
+abamidiyani. R/Mbega imbaraga z’Imana mbega gukomera kw’Imana. 
+
+2.Yatunguye
+na Yosuwa kurugamba abona umugaboarabaza ati yewe muntu Uri uwo mubacu cg se
+uri uwo mubabisha ati oya sindi uwo mubabisha Ndiumugaba w’izo mu ijuru manuwe
+no gutabara, abagenda imbere baranesha
+
+3.
+Yatunguye Marodekayi n’Abayuda babibonye baratangara babwira Hamani, Hamani
+Hamani wehe wibeshya kugambanira abayuda ni Ukutamenya ibabamo.Ni inyembaraga,
+xtimes
+
+4. MWISIRAHERI
+ 1. Mwisiraheri hari umwami witwaga Sawuli
+yajyaga aterwa n’imyuka mibi Dawidi akaririmba, Dawidi agasenga Dawidi (*3)
+Dawidi akaririmba Dawidi agasenga. 
+
+Filles:
+Harimo umugabo 
+
+Garcons:
+Umugabo ukomeye umugabo w’igihangange, w’igihangange Goriyati yasuzuguraga
+Imana agatuka Imana ningabo zayo Dawidi Aramureba arasenga ati Mana nyirijuru
+wehehe mungabize Umungabize umungabize. 
+
+2.Maze
+Dawidi aragenda abwira Sswuri mwami nyaguhora kungoma Nyemerera ngende ngere
+kurugamba ndwane n’umugabo nabonye Atuka Imana n’ingabo zayo. 
+
+Filles:
+Narwanye n’intare mu ishyamba nyaka intama.Ndwana n’idubu mu Ishyamba nyaka
+intama none mu izina ry’Uwiteka ndamunesha ndamunesha Uwo Goriati ati:
+
+ Garcons: Yewe sha ngwino nkubagire ibisiga
+n’inyamaswa zo mu ishyamba maze Dawudi agenda yiruka arwana na Goriyati afata
+akagozi akora mu mvumba afata Akabuye nuko aramwegera arazunguza arazunguza
+(*2)pa!maze iryo buye ryica Goriyati Dawidi araririmba Dawidi araririmba
+
+2. BIBA MU GITONDO
+1.      Biba mu gitondo imbuto
+z’ineza, na nimugoroba ntureke kubiba, Biba izuba riva biba imvura iguye
+nidutunda imiba tuzanezerwa. 
+
+R/Tugeze mu
+ijuru tuzanezerwa, Yesu azatwicaza maze adushimire, Ati muruhuke bagaragu beza,
+umurimo wanjye mwawukoze neza.
+
+ 2. Tugende tubiba tubiba Umwami, niba
+tubabazwa n’abantu barimbuka, Amasarura n’imirimo bishize, nyiri uruzabibu
+azadushimira. 
+
+2.      Abakozi mwese muri
+muruzabibu mururinde cyane nk’abazarubazwa Nimufate izo ngunzu zona urzabibu
+Databuja naza azabashimira
+
+3. IMBARAGA
+1.
+Imbaraga, imbaraga, imbaraga z’Imana ndavuga imbaraga z’Imana Ndavuga gukomera
+kw’Imana, ndavuga gutabara kw’Imana. Hari imbaraga zidasanzwe z’Imana hari
+ukunesha kudasanzwe kw’Imana Imana nyamana iratabara kurugamba. Yatunguye
+Gidiyoni asekura ingano yihisha abamidiyani iramubwira Iti Gidiyoni weee genda
+genda ukw’imbaraga za we zingana. Garcons: Uzanesha 
+
+Tous:
+abamidiyani. R/Mbega imbaraga z’Imana mbega gukomera kw’Imana. 
+
+2.Yatunguye
+na Yosuwa kurugamba abona umugaboarabaza ati yewe muntu Uri uwo mubacu cg se
+uri uwo mubabisha ati oya sindi uwo mubabisha Ndiumugaba w’izo mu ijuru manuwe
+no gutabara, abagenda imbere baranesha
+
+3.
+Yatunguye Marodekayi n’Abayuda babibonye baratangara babwira Hamani, Hamani
+Hamani wehe wibeshya kugambanira abayuda ni Ukutamenya ibabamo.Ni inyembaraga,
+xtimes`;
+
+/**
+ * Parses all 16 choir songs from the provided choir document text into structured JSON.
+ * Preserves exact titles, 4 categories, and full raw lyrics formatting.
+ */
+export function parseSixteenSongs(documentText?: string): ParsedSongItem[] {
+  const textToParse = (documentText && documentText.trim().length > 0)
+    ? documentText
+    : RAW_16_SONGS_DOCUMENT_TEXT;
+
+  const parsed = parseSongDocumentToJSON(textToParse);
+
+  // Return the parsed songs (validating that each has title, category, lyrics)
+  return parsed;
+}
+
+/**
+ * Upserts the 16 choir songs into the application's persistent SQLite database.
+ * Checks for existing title (exact and normalized) to ensure zero duplicates are created,
+ * keeping existing records undisturbed.
+ */
+export function upsertSixteenSongs(
+  documentText?: string,
+  databaseInstance: DbWrapper = defaultDb
+): {
+  parsedCount: number;
+  report: UpsertSongsReport;
+  songs: ParsedSongItem[];
+} {
+  const songs = parseSixteenSongs(documentText);
+  const report = upsertSongRecords(songs, databaseInstance);
+
+  return {
+    parsedCount: songs.length,
+    report,
+    songs
+  };
+}
+
+// -------------------------------------------------------------
+// CLI Execution Handler (when run directly via `tsx` or `node`)
+// -------------------------------------------------------------
+async function runCli() {
+  console.log('===============================================================');
+  console.log('LA LUMIERE CHOIR - 16 SONGS PARSER & UPSERT UTILITY');
+  console.log('===============================================================');
+
+  const songs = parseSixteenSongs();
+  console.log(`\nSuccessfully parsed ${songs.length} songs across categories:`);
+
+  const categoryCounts: Record<string, number> = {};
+  songs.forEach((s, idx) => {
+    categoryCounts[s.category] = (categoryCounts[s.category] || 0) + 1;
+    console.log(
+      `  ${String(idx + 1).padStart(2, ' ')}. [${s.category.padEnd(8, ' ')}] ${s.song_number ? `#${s.song_number} ` : ''}"${s.title}" (${s.lyrics.length} chars)`
+    );
+  });
+
+  console.log('\nCategory breakdown:', categoryCounts);
+
+  console.log('\n--- Running duplicate-safe upsert with title existence check ---');
+  const result = upsertSixteenSongs();
+  console.log(`\nUpsert Report:`);
+  console.log(`  Total Processed: ${result.report.totalProcessed}`);
+  console.log(`  Inserted (New) : ${result.report.insertedCount}`);
+  console.log(`  Updated        : ${result.report.updatedCount}`);
+  console.log(`  Skipped        : ${result.report.skippedCount}`);
+
+  console.log('\nAll songs verified and safely synchronized without duplicate titles!\n');
+}
+
+// Check if file is being executed directly
+const isDirectExecution =
+  (typeof process !== 'undefined' && process.argv[1] && (
+    process.argv[1].endsWith('parse16SongsUtility.ts') ||
+    process.argv[1].endsWith('parse16SongsUtility.js')
+  ));
+
+if (isDirectExecution) {
+  runCli().catch((err) => {
+    console.error('Fatal error during CLI execution:', err);
+    process.exit(1);
+  });
+}

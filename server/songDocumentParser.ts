@@ -110,12 +110,12 @@ export function parseSongDocumentToJSON(documentText: unknown): ParsedSongItem[]
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n');
 
-  // Define regexes for the 4 choir categories
+  // Define regexes for the 4 choir categories (matching standalone category headers or with number/prefix)
   const categoryPatterns: Array<{ name: SongCategoryName; regex: RegExp }> = [
-    { name: 'AGAKIZA', regex: /(?:^|\n)\s*(?:Category\s*\d*[\.:\-]?\s*|\d+[\.:\-]?\s*)?AGAKIZA[^\n]*/gi },
-    { name: 'IJURU', regex: /(?:^|\n)\s*(?:Category\s*\d*[\.:\-]?\s*|\d+[\.:\-]?\s*)?IJURU[^\n]*/gi },
-    { name: 'GUSHIMA', regex: /(?:^|\n)\s*(?:Category\s*\d*[\.:\-]?\s*|\d+[\.:\-]?\s*)?GUSHIMA[^\n]*/gi },
-    { name: 'KWIZERA', regex: /(?:^|\n)\s*(?:Category\s*\d*[\.:\-]?\s*|\d+[\.:\-]?\s*)?KWIZERA[^\n]*/gi }
+    { name: 'AGAKIZA', regex: /(?:^|\n)[ \t]*(?:(?:Category|Icyiciro)\s*\d*[\.:\-]?\s*|\d+[\.:\-]?\s*)?AGAKIZA[ \t]*(?:[\.:\-]|\s*)*(?=\n|$)/gi },
+    { name: 'IJURU', regex: /(?:^|\n)[ \t]*(?:(?:Category|Icyiciro)\s*\d*[\.:\-]?\s*|\d+[\.:\-]?\s*)?IJURU[ \t]*(?:[\.:\-]|\s*)*(?=\n|$)/gi },
+    { name: 'GUSHIMA', regex: /(?:^|\n)[ \t]*(?:(?:Category|Icyiciro)\s*\d*[\.:\-]?\s*|\d+[\.:\-]?\s*)?GUSHIMA[ \t]*(?:[\.:\-]|\s*)*(?=\n|$)/gi },
+    { name: 'KWIZERA', regex: /(?:^|\n)[ \t]*(?:(?:Category|Icyiciro)\s*\d*[\.:\-]?\s*|\d+[\.:\-]?\s*)?KWIZERA[ \t]*(?:[\.:\-]|\s*)*(?=\n|$)/gi }
   ];
 
   interface FoundCategoryMarker {
