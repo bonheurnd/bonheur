@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { DatabaseSync } from 'node:sqlite';
 import bcrypt from 'bcryptjs';
+import { syncOfficialDocumentSongs } from './officialSongsSync.js';
 
 const DB_DIR = process.env.DATA_DIR || (process.env.DATABASE_PATH ? path.dirname(process.env.DATABASE_PATH) : path.join(process.cwd(), 'data'));
 if (!fs.existsSync(DB_DIR)) {
@@ -1092,6 +1093,14 @@ function seedOfficialSongs() {
     db.prepare("UPDATE songs SET is_deleted = 0 WHERE is_deleted IS NULL").run();
   } catch (e) {
     // ignore
+  }
+
+  // Always ensure official document songs are synchronized with exact titles, categories, and lyrics
+  try {
+    const report = syncOfficialDocumentSongs(db);
+    console.log(`[Songbook] Verified & synced ${report.totalDetected} official document songs! (${report.matchedExisting} matched, ${report.totalDetected - report.matchedExisting} new entries)`);
+  } catch (err) {
+    console.error('[Songbook] Error syncing official document songs:', err);
   }
 
   // Seed sample announcements

@@ -7,6 +7,27 @@ import multer from 'multer';
 import mammoth from 'mammoth';
 import { db, logActivity } from './db.js';
 import { requireAdmin, optionalAuth, isUserAdmin, AuthRequest } from './auth.js';
+import {
+  parseSongDocumentToJSON,
+  upsertSongRecords,
+  parseAndUpsertSongDocument,
+  type ParsedSongItem,
+  type UpsertSongResult,
+  type UpsertSongsReport,
+  type DocumentImportSummary,
+  type SongCategoryName
+} from './songDocumentParser.js';
+
+export {
+  parseSongDocumentToJSON,
+  upsertSongRecords,
+  parseAndUpsertSongDocument,
+  type ParsedSongItem,
+  type UpsertSongResult,
+  type UpsertSongsReport,
+  type DocumentImportSummary,
+  type SongCategoryName
+};
 
 export const songsRouter: Router = express.Router();
 

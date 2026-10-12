@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Song, Comment, AudioTrack } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
@@ -38,6 +38,12 @@ import {
   Eye,
   FileCheck,
   Link as LinkIcon,
+  Mic,
+  SkipBack,
+  SkipForward,
+  Sparkles,
+  RotateCcw,
+  Sliders,
 } from 'lucide-react';
 
 interface SongDetailScreenProps {
@@ -52,7 +58,7 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
   onOpenAuth,
 }) => {
   const { user, isAdmin } = useAuth();
-  const { playTrack, isPlaying, currentTrack, togglePlay } = useAudio();
+  const { playTrack, isPlaying, currentTrack, togglePlay, currentTime, duration, seek } = useAudio();
 
   const [song, setSong] = useState<Song | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -90,6 +96,140 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
   const [isSubmittingPdf, setIsSubmittingPdf] = useState(false);
   const [pdfSuccessMessage, setPdfSuccessMessage] = useState<string | null>(null);
   const [pdfErrorMessage, setPdfErrorMessage] = useState<string | null>(null);
+
+  // Karaoke Sync State
+  const [isKaraokeMode, setIsKaraokeMode] = useState<boolean>(true);
+  const [autoScroll, setAutoScroll] = useState<boolean>(true);
+  const [showTimestampsOnLines, setShowTimestampsOnLines] = useState<boolean>(false);
+  const [showAdminSyncModal, setShowAdminSyncModal] = useState<boolean>(false);
+  const [syncFormLyrics, setSyncFormLyrics] = useState<string>('');
+  const [isSavingSync, setIsSavingSync] = useState<boolean>(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const activeLineRef = useRef<HTMLDivElement | null>(null);
+
+  const formatTime = (seconds: number) => {
+    if (isNaN(seconds) || seconds < 0) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  // Check if audio currently playing in global context belongs to this song
+  const isThisSongAudioLoaded = Boolean(
+    currentTrack && (currentTrack.song_id === song?.id || song?.audio_tracks?.some(t => t.id === currentTrack.id))
+  );
+
+  // Parse lyrics into line items with timestamps
+  const parsedLyrics = useMemo(() => {
+    if (!song?.lyrics) return [];
+    const rawLines = song.lyrics.split('\n');
+    const lrcRegex = /^\s*\[(\d{1,2}):(\d{2}(?:\.\d{1,3})?)\]\s*(.*)$/;
+
+    let explicitCount = 0;
+    const items = rawLines.map((line, idx) => {
+      const match = line.match(lrcRegex);
+      if (match) {
+        explicitCount++;
+        const mins = parseInt(match[1], 10);
+        const secs = parseFloat(match[2]);
+        const text = match[3];
+        const trimmed = text.trim();
+        const isSection = /^(?:R\/|GUT:|KWIK:|Filles?:|Gar[cç]ons?:|Tous:|Twese:|[0-9]+\.\s*$)/i.test(trimmed);
+        return {
+          id: idx,
+          raw: line,
+          text: text,
+          timestamp: mins * 60 + secs,
+          hasExplicit: true,
+          isSectionHeader: isSection,
+          isEmpty: trimmed.length === 0,
+        };
+      }
+      const trimmed = line.trim();
+      const isSection = /^(?:R\/|GUT:|KWIK:|Filles?:|Gar[cç]ons?:|Tous:|Twese:|[0-9]+\.\s*$)/i.test(trimmed);
+      return {
+        id: idx,
+        raw: line,
+        text: line,
+        timestamp: 0,
+        hasExplicit: false,
+        isSectionHeader: isSection,
+        isEmpty: trimmed.length === 0,
+      };
+    });
+
+    // If lyrics don't have explicit timestamps, calculate interpolated timestamps across audio track duration
+    if (explicitCount === 0) {
+      const effectiveDuration = duration > 10 ? duration : (currentTrack?.duration_seconds || 90);
+      const nonEmptyLines = items.filter(l => !l.isEmpty);
+      if (nonEmptyLines.length > 0) {
+        const introLead = 3;
+        const outroTail = 5;
+        const activeDuration = Math.max(effectiveDuration - introLead - outroTail, 15);
+        const lineInterval = activeDuration / nonEmptyLines.length;
+        let nonSpaceCounter = 0;
+
+        return items.map(item => {
+          if (item.isEmpty) return item;
+          const ts = introLead + (nonSpaceCounter * lineInterval);
+          nonSpaceCounter++;
+          return {
+            ...item,
+            timestamp: ts,
+          };
+        });
+      }
+    }
+
+    return items;
+  }, [song?.lyrics, duration, currentTrack?.duration_seconds]);
+
+  // Determine active lyric line based on currentTime
+  const activeLineIndex = useMemo(() => {
+    if (!isThisSongAudioLoaded || parsedLyrics.length === 0) return -1;
+    let foundIdx = -1;
+    for (let i = 0; i < parsedLyrics.length; i++) {
+      if (!parsedLyrics[i].isEmpty && parsedLyrics[i].timestamp <= currentTime) {
+        foundIdx = i;
+      }
+    }
+    return foundIdx;
+  }, [isThisSongAudioLoaded, parsedLyrics, currentTime]);
+
+  useEffect(() => {
+    if (isKaraokeMode && autoScroll && isPlaying && isThisSongAudioLoaded && activeLineRef.current) {
+      activeLineRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+  }, [activeLineIndex, isKaraokeMode, autoScroll, isPlaying, isThisSongAudioLoaded]);
+
+  const handleSeekToLine = (timestamp: number) => {
+    if (!song?.audio_tracks || song.audio_tracks.length === 0) return;
+    if (!isThisSongAudioLoaded) {
+      playTrack(song.audio_tracks[0], song);
+    }
+    seek(timestamp);
+  };
+
+  const handlePrevLine = () => {
+    const validLines = parsedLyrics.filter(l => !l.isEmpty);
+    const currSubIdx = validLines.findIndex(l => l.id === activeLineIndex);
+    if (currSubIdx > 0) {
+      handleSeekToLine(validLines[currSubIdx - 1].timestamp);
+    } else if (validLines.length > 0) {
+      handleSeekToLine(validLines[0].timestamp);
+    }
+  };
+
+  const handleNextLine = () => {
+    const validLines = parsedLyrics.filter(l => !l.isEmpty);
+    const currSubIdx = validLines.findIndex(l => l.id === activeLineIndex);
+    if (currSubIdx >= 0 && currSubIdx < validLines.length - 1) {
+      handleSeekToLine(validLines[currSubIdx + 1].timestamp);
+    }
+  };
 
   const handleDownloadPdf = () => {
     if (!song) return;
@@ -829,8 +969,8 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
       ) : (
         /* Reading Interface with Controls */
         <div className="space-y-3">
-          {/* Reading Toolbar: Font Size + Themes */}
-          <div className="flex items-center justify-between bg-white rounded-2xl p-2.5 border border-slate-200/80 shadow-2xs">
+          {/* Reading Toolbar: Font Size + Themes + Karaoke Sync */}
+          <div className="flex items-center justify-between bg-white rounded-2xl p-2.5 border border-slate-200/80 shadow-2xs flex-wrap gap-2">
             {/* Font Size Selector */}
             <div className="flex items-center gap-1">
               <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Inyuguti:</span>
@@ -849,37 +989,110 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
               ))}
             </div>
 
-            {/* Theme Mode Selector */}
-            <div className="flex items-center gap-1">
+            {/* Karaoke Mode Toggle & Auto-scroll */}
+            <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setThemeMode('light')}
-                className={`p-1.5 rounded-lg border transition-colors ${
-                  themeMode === 'light' ? 'bg-white border-blue-900 text-blue-900 shadow-2xs' : 'text-slate-400'
+                onClick={() => setIsKaraokeMode(!isKaraokeMode)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                  isKaraokeMode
+                    ? 'bg-amber-400 text-slate-950 shadow-2xs ring-1 ring-amber-500/40'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
                 }`}
-                title="White Mode"
+                title="Genzura Karaoke Mode: Gukurikirana umurongo uri kuririmbwa"
               >
-                <Sun className="w-4 h-4" />
+                <Mic className={`w-3.5 h-3.5 ${isKaraokeMode && isPlaying && isThisSongAudioLoaded ? 'text-slate-950 animate-bounce' : ''}`} />
+                <span>{isKaraokeMode ? 'Karaoke ON' : 'Karaoke'}</span>
               </button>
-              <button
-                onClick={() => setThemeMode('sepia')}
-                className={`p-1.5 rounded-lg border transition-colors ${
-                  themeMode === 'sepia' ? 'bg-[#f4ecd8] border-amber-800 text-amber-900 shadow-2xs' : 'text-slate-400'
-                }`}
-                title="Sepia Book Mode"
-              >
-                <Coffee className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setThemeMode('dark')}
-                className={`p-1.5 rounded-lg border transition-colors ${
-                  themeMode === 'dark' ? 'bg-slate-900 border-slate-700 text-white shadow-2xs' : 'text-slate-400'
-                }`}
-                title="Dark Mode"
-              >
-                <Moon className="w-4 h-4" />
-              </button>
+
+              {isKaraokeMode && (
+                <button
+                  onClick={() => setAutoScroll(!autoScroll)}
+                  className={`px-2 py-1 rounded-xl text-[10px] font-bold border transition-colors ${
+                    autoScroll
+                      ? 'bg-blue-50 border-blue-200 text-blue-900'
+                      : 'bg-slate-50 border-slate-200 text-slate-400'
+                  }`}
+                  title="Auto-scroll umurongo uri kuririmbwa"
+                >
+                  Scroll: {autoScroll ? 'ON' : 'OFF'}
+                </button>
+              )}
+
+              {/* Theme Mode Selector */}
+              <div className="flex items-center gap-1 pl-1 border-l border-slate-200">
+                <button
+                  onClick={() => setThemeMode('light')}
+                  className={`p-1.5 rounded-lg border transition-colors ${
+                    themeMode === 'light' ? 'bg-white border-blue-900 text-blue-900 shadow-2xs' : 'text-slate-400'
+                  }`}
+                  title="White Mode"
+                >
+                  <Sun className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setThemeMode('sepia')}
+                  className={`p-1.5 rounded-lg border transition-colors ${
+                    themeMode === 'sepia' ? 'bg-[#f4ecd8] border-amber-800 text-amber-900 shadow-2xs' : 'text-slate-400'
+                  }`}
+                  title="Sepia Book Mode"
+                >
+                  <Coffee className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setThemeMode('dark')}
+                  className={`p-1.5 rounded-lg border transition-colors ${
+                    themeMode === 'dark' ? 'bg-slate-900 border-slate-700 text-white shadow-2xs' : 'text-slate-400'
+                  }`}
+                  title="Dark Mode"
+                >
+                  <Moon className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
+
+          {/* Karaoke Active Playing Controller Bar */}
+          {isKaraokeMode && isThisSongAudioLoaded && (
+            <div className="bg-gradient-to-r from-amber-500/15 via-amber-400/25 to-amber-500/15 border border-amber-300/80 rounded-2xl p-3 flex items-center justify-between gap-2 shadow-xs animate-in fade-in duration-200">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-black text-slate-900 truncate flex items-center gap-1.5">
+                    <Music className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span className="truncate">{currentTrack?.title}</span>
+                  </p>
+                  <p className="text-[10px] font-mono text-slate-700 font-semibold">
+                    {formatTime(currentTime)} / {formatTime(duration || currentTrack?.duration_seconds || 0)}
+                    {activeLineIndex >= 0 && ` • Umurongo #${activeLineIndex + 1}`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={handlePrevLine}
+                  className="p-1.5 rounded-xl bg-white/90 hover:bg-white text-slate-800 border border-slate-200 text-xs font-bold transition-all active:scale-95 shadow-2xs"
+                  title="Subira ku murongo wabanje (Previous Line)"
+                >
+                  <SkipBack className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={togglePlay}
+                  className="p-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold transition-all active:scale-95 shadow-2xs"
+                  title={isPlaying ? 'Hagarika (Pause)' : 'Komeza (Play)'}
+                >
+                  {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
+                </button>
+                <button
+                  onClick={handleNextLine}
+                  className="p-1.5 rounded-xl bg-white/90 hover:bg-white text-slate-800 border border-slate-200 text-xs font-bold transition-all active:scale-95 shadow-2xs"
+                  title="Komeza ku murongo ukurikira (Next Line)"
+                >
+                  <SkipForward className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Lyrics Content Card */}
           <div
@@ -888,8 +1101,9 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
             }`}
           >
             <div className="border-b pb-3 mb-6 flex items-center justify-between border-current/10">
-              <span className="font-mono text-xs uppercase tracking-wider opacity-60">
-                Amagambo y'Indirimbo (Lyrics)
+              <span className="font-mono text-xs uppercase tracking-wider opacity-60 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" />
+                <span>Amagambo y'Indirimbo (Lyrics)</span>
               </span>
               <span className="text-xs font-semibold opacity-60">
                 La Lumiere Choir
@@ -897,11 +1111,58 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
             </div>
 
             {song.lyrics ? (
-              <div
-                className={`font-serif whitespace-pre-wrap tracking-normal ${fontSizeClasses[fontSize]}`}
-              >
-                {song.lyrics}
-              </div>
+              isKaraokeMode ? (
+                <div className={`space-y-1 font-serif ${fontSizeClasses[fontSize]}`}>
+                  {parsedLyrics.map(line => {
+                    if (line.isEmpty) {
+                      return <div key={line.id} className="h-3" />;
+                    }
+
+                    const isActive = isThisSongAudioLoaded && activeLineIndex === line.id;
+                    const isPast = isThisSongAudioLoaded && activeLineIndex > line.id;
+
+                    return (
+                      <div
+                        key={line.id}
+                        ref={isActive ? activeLineRef : undefined}
+                        onClick={() => handleSeekToLine(line.timestamp)}
+                        className={`group flex items-start gap-2.5 py-1.5 px-3 rounded-2xl transition-all duration-300 cursor-pointer ${
+                          isActive
+                            ? 'bg-amber-400/25 border-l-4 border-amber-500 font-bold text-slate-950 dark:text-amber-200 shadow-md ring-1 ring-amber-400/40 scale-[1.01]'
+                            : isPast
+                            ? 'opacity-65 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
+                            : 'opacity-90 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
+                        }`}
+                        title={`Kanda hano ngo usimbukire kuri uyu murongo (${formatTime(line.timestamp)})`}
+                      >
+                        {/* Time indicator or musical note */}
+                        <div className="shrink-0 pt-0.5 select-none">
+                          {isActive ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-amber-500 text-slate-950 shadow-2xs animate-pulse">
+                              <Music className="w-2.5 h-2.5" />
+                              {formatTime(line.timestamp)}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-mono text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {formatTime(line.timestamp)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex-1 leading-relaxed">
+                          {line.text}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div
+                  className={`font-serif whitespace-pre-wrap tracking-normal ${fontSizeClasses[fontSize]}`}
+                >
+                  {song.lyrics}
+                </div>
+              )
             ) : (
               <p className="text-center py-8 text-xs opacity-50 italic">
                 Amagambo y'iyi ndirimbo azashyirwaho vuba.

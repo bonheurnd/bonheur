@@ -269,6 +269,37 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
   const [deleteFeedback, setDeleteFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
 
+  // Official document songs sync state
+  const [isSyncingOfficial, setIsSyncingOfficial] = useState(false);
+  const [officialSyncResult, setOfficialSyncResult] = useState<string | null>(null);
+
+  const handleSyncOfficialSongs = async () => {
+    try {
+      setIsSyncingOfficial(true);
+      const token = localStorage.getItem('lalumiere_token');
+      const res = await fetch('/api/admin/songs/sync-official', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOfficialSyncResult(`Indirimbo 14 z'umwimerere zemejwe neza mu bubiko! (${data.report.matchedExisting} matched, ${data.report.importedSuccessfully - data.report.matchedExisting} new)`);
+        onRefresh();
+        setTimeout(() => setOfficialSyncResult(null), 4000);
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to sync official songs');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error syncing songs');
+    } finally {
+      setIsSyncingOfficial(false);
+    }
+  };
+
   // Available categories with fallback
   const resolvedCategories: SongCategory[] = useMemo(() => {
     if (categories && categories.length > 0) return categories;
@@ -916,6 +947,148 @@ export const AdminSongManagement: React.FC<AdminSongManagementProps> = ({
                   <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-600">
                     <span>Published: <b>{cat.published}</b></span>
                     <span>Drafts: <b>{cat.draft}</b></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Official Document Integration Card (14 Songs across 4 Categories) */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase tracking-wide">
+                    Document Integration
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    14 Songs • 4 Categories
+                  </span>
+                </div>
+                <h3 className="text-base font-extrabold text-slate-900 mt-1">
+                  INDIRIMBO ZA LA LUMIERE CHOIR (Official Document Sync)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Amagambo yose y'indirimbo yabitswe uko ari muri document yatanzwe nta kintu cyahinduwe cyangwa cyakosowe.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSyncOfficialSongs}
+                  disabled={isSyncingOfficial}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-2xs active:scale-95"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isSyncingOfficial ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingOfficial ? 'Kugahuza...' : 'Gahuza Inyandiko Y\'Umwimerere'}</span>
+                </button>
+              </div>
+            </div>
+
+            {officialSyncResult && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-200">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{officialSyncResult}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                {
+                  cat: 'AGAKIZA',
+                  songs: [
+                    { num: '1', title: 'NGWINO TUJYANE', id: 'song_agakiza_07' },
+                    { num: '2', title: 'DORE URUKUNDO', id: 'song_agakiza_01' },
+                    { num: '3', title: 'YESU YESU MWAMI', id: 'song_agakiza_05' },
+                  ]
+                },
+                {
+                  cat: 'IJURU',
+                  songs: [
+                    { num: '1', title: 'TURI ABAGENZI', id: 'song_ijuru_01' },
+                    { num: '2', title: 'INGOMA YAMAHORO', id: 'song_ijuru_03' },
+                    { num: '3', title: 'UZAMPE IHEREZO RYIZA', id: 'song_ijuru_05' },
+                    { num: '4', title: 'BAKUNDWA TURI ABANA BIMANA', id: 'song_ijuru_08' },
+                  ]
+                },
+                {
+                  cat: 'GUSHIMA',
+                  songs: [
+                    { num: '1', title: 'TURAGUSHIMA MANA', id: 'song_gushima_01' },
+                    { num: '2', title: 'NAGIRIWE UBUNTU NIMANA', id: 'song_gushima_02' },
+                    { num: '3', title: 'REKA NDIRIMBIRE UMUKUNZI', id: 'song_gushima_04' },
+                  ]
+                },
+                {
+                  cat: 'KWIZERA',
+                  songs: [
+                    { num: '1', title: 'ABANYAMUGISHA', id: 'song_kwizera_02' },
+                    { num: '2', title: 'BIBA MU GITONDO', id: 'song_kwizera_biba_gitondo' },
+                    { num: '3', title: 'IMBARAGA', id: 'song_kwizera_imbaraga_doc' },
+                    { num: '4', title: 'MWISIRAHERI', id: 'song_kwizera_14' },
+                  ]
+                }
+              ].map(group => (
+                <div key={group.cat} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-2">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/50">
+                    <span className="text-xs font-black text-blue-900 tracking-wide uppercase">
+                      {group.cat}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200/60">
+                      {group.songs.length} songs
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {group.songs.map(s => {
+                      const dbSong = songs.find(x => x.id === s.id);
+                      return (
+                        <div
+                          key={s.id}
+                          className="p-2 rounded-xl bg-white border border-slate-200/60 hover:border-blue-300 transition-all text-left flex items-start justify-between gap-1 group"
+                        >
+                          <div className="min-w-0">
+                            <span className="text-[10px] font-mono font-bold text-amber-600 block">
+                              #{s.num}
+                            </span>
+                            <p className="text-xs font-bold text-slate-900 truncate">
+                              {s.title}
+                            </p>
+                            <span className="text-[10px] text-emerald-600 font-semibold block">
+                              ✓ Lyrics verified
+                            </span>
+                          </div>
+
+                          {dbSong && (
+                            <button
+                              onClick={() => {
+                                setSelectedSongForEdit(dbSong);
+                                setEditForm({
+                                  title: dbSong.title || '',
+                                  song_number: String(dbSong.song_number || ''),
+                                  composer: dbSong.composer || 'La Lumiere Choir',
+                                  category_id: dbSong.category_id || '',
+                                  release_status: dbSong.release_status || 'released',
+                                  status: (dbSong.status as any) || 'published',
+                                  release_date: dbSong.release_date || '',
+                                  description: dbSong.description || '',
+                                  language: dbSong.language || 'Kinyarwanda',
+                                  lyrics: dbSong.lyrics || '',
+                                  solfa_notation: dbSong.solfa_notation || '',
+                                  lyrics_pdf_url: dbSong.lyrics_pdf_url || '',
+                                  lyrics_pdf_filename: dbSong.lyrics_pdf_filename || '',
+                                });
+                                setActiveTab('edit');
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-blue-900 rounded-lg hover:bg-slate-100 transition-all shrink-0"
+                              title="Hindura iyi ndirimbo (Edit Song)"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ))}

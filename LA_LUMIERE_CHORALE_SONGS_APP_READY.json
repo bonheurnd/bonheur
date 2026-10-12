@@ -2,8 +2,8 @@
   {
     "id": "song_agakiza_01",
     "global_number": 1,
-    "song_number": "1",
-    "title": "URUKUNDO",
+    "song_number": "2",
+    "title": "DORE URUKUNDO",
     "category_id": "cat_agakiza",
     "category_name": "AGAKIZA",
     "category_slug": "agakiza",
@@ -46,8 +46,8 @@
   {
     "id": "song_agakiza_05",
     "global_number": 5,
-    "song_number": "5",
-    "title": "YESU YESU MWAMI.",
+    "song_number": "3",
+    "title": "YESU YESU MWAMI",
     "category_id": "cat_agakiza",
     "category_name": "AGAKIZA",
     "category_slug": "agakiza",
@@ -68,8 +68,8 @@
   {
     "id": "song_agakiza_07",
     "global_number": 7,
-    "song_number": "7",
-    "title": "IKIRARA.",
+    "song_number": "1",
+    "title": "NGWINO TUJYANE",
     "category_id": "cat_agakiza",
     "category_name": "AGAKIZA",
     "category_slug": "agakiza",
@@ -288,8 +288,8 @@
   {
     "id": "song_ijuru_03",
     "global_number": 27,
-    "song_number": "3",
-    "title": "INGOMA Y’AMAHORO.",
+    "song_number": "2",
+    "title": "INGOMA YAMAHORO",
     "category_id": "cat_ijuru",
     "category_name": "IJURU",
     "category_slug": "ijuru",
@@ -310,8 +310,8 @@
   {
     "id": "song_ijuru_05",
     "global_number": 29,
-    "song_number": "5",
-    "title": "UZAMPE IHEREZO RYIZA.",
+    "song_number": "3",
+    "title": "UZAMPE IHEREZO RYIZA",
     "category_id": "cat_ijuru",
     "category_name": "IJURU",
     "category_slug": "ijuru",
@@ -343,8 +343,8 @@
   {
     "id": "song_ijuru_08",
     "global_number": 32,
-    "song_number": "8",
-    "title": "BAKUNDWA.",
+    "song_number": "4",
+    "title": "BAKUNDWA TURI ABANA BIMANA",
     "category_id": "cat_ijuru",
     "category_name": "IJURU",
     "category_slug": "ijuru",
@@ -454,7 +454,7 @@
     "id": "song_gushima_01",
     "global_number": 42,
     "song_number": "1",
-    "title": "TURAGUSHIMA",
+    "title": "TURAGUSHIMA MANA",
     "category_id": "cat_gushima",
     "category_name": "GUSHIMA",
     "category_slug": "gushima",
@@ -465,7 +465,7 @@
     "id": "song_gushima_02",
     "global_number": 43,
     "song_number": "2",
-    "title": "NAGIRIWE UBUNTU.",
+    "title": "NAGIRIWE UBUNTU NIMANA",
     "category_id": "cat_gushima",
     "category_name": "GUSHIMA",
     "category_slug": "gushima",
@@ -486,8 +486,8 @@
   {
     "id": "song_gushima_04",
     "global_number": 45,
-    "song_number": "4",
-    "title": "REKA NDIRIMBIRE UMUKUNZI.",
+    "song_number": "3",
+    "title": "REKA NDIRIMBIRE UMUKUNZI",
     "category_id": "cat_gushima",
     "category_name": "GUSHIMA",
     "category_slug": "gushima",
@@ -662,7 +662,7 @@
   {
     "id": "song_kwizera_02",
     "global_number": 61,
-    "song_number": "2",
+    "song_number": "1",
     "title": "ABANYAMUGISHA",
     "category_id": "cat_kwizera",
     "category_name": "KWIZERA",
@@ -794,8 +794,8 @@
   {
     "id": "song_kwizera_14",
     "global_number": 73,
-    "song_number": "14",
-    "title": "MWISIRAHERI.",
+    "song_number": "4",
+    "title": "MWISIRAHERI",
     "category_id": "cat_kwizera",
     "category_name": "KWIZERA",
     "category_slug": "kwizera",
@@ -1150,5 +1150,27 @@
     "song_number": "4",
     "title": "MWISIRAHERI",
     "lyrics": " 1. Mwisiraheri hari umwami witwaga Sawuli\nyajyaga aterwa n’imyuka mibi Dawidi akaririmba, Dawidi agasenga Dawidi (*3)\nDawidi akaririmba Dawidi agasenga. \n\nFilles:\nHarimo umugabo \n\nGarcons:\nUmugabo ukomeye umugabo w’igihangange, w’igihangange Goriyati yasuzuguraga\nImana agatuka Imana ningabo zayo Dawidi Aramureba arasenga ati Mana nyirijuru\nwehehe mungabize Umungabize umungabize. \n\n2.Maze\nDawidi aragenda abwira Sswuri mwami nyaguhora kungoma Nyemerera ngende ngere\nkurugamba ndwane n’umugabo nabonye Atuka Imana n’ingabo zayo. \n\nFilles:\nNarwanye n’intare mu ishyamba nyaka intama.Ndwana n’idubu mu Ishyamba nyaka\nintama none mu izina ry’Uwiteka ndamunesha ndamunesha Uwo Goriati ati:\n\n Garcons: Yewe sha ngwino nkubagire ibisiga\nn’inyamaswa zo mu ishyamba maze Dawudi agenda yiruka arwana na Goriyati afata\nakagozi akora mu mvumba afata Akabuye nuko aramwegera arazunguza arazunguza\n(*2)pa!maze iryo buye ryica Goriyati Dawidi araririmba Dawidi araririmba"
+  },
+  {
+    "id": "song_kwizera_biba_gitondo",
+    "global_number": 107,
+    "song_number": "2",
+    "title": "BIBA MU GITONDO",
+    "category_id": "cat_kwizera",
+    "category_name": "KWIZERA",
+    "category_slug": "kwizera",
+    "category_number": 2,
+    "lyrics": "1.      Biba mu gitondo imbuto\nz’ineza, na nimugoroba ntureke kubiba, Biba izuba riva biba imvura iguye\nnidutunda imiba tuzanezerwa. \n\nR/Tugeze mu\nijuru tuzanezerwa, Yesu azatwicaza maze adushimire, Ati muruhuke bagaragu beza,\numurimo wanjye mwawukoze neza. \n\n2.      Tugende tubiba tubiba Umwami, niba\ntubabazwa n’abantu barimbuka, Amasarura n’imirimo bishize, nyiri uruzabibu\nazadushimira. \n\n2.      Abakozi mwese muri\nmuruzabibu mururinde cyane nk’abazarubazwa Nimufate izo ngunzu zona urzabibu\nDatabuja naza azabashimira"
+  },
+  {
+    "id": "song_kwizera_imbaraga_doc",
+    "global_number": 108,
+    "song_number": "3",
+    "title": "IMBARAGA",
+    "category_id": "cat_kwizera",
+    "category_name": "KWIZERA",
+    "category_slug": "kwizera",
+    "category_number": 3,
+    "lyrics": "1.\nImbaraga, imbaraga, imbaraga z’Imana ndavuga imbaraga z’Imana Ndavuga gukomera\nkw’Imana, ndavuga gutabara kw’Imana. Hari imbaraga zidasanzwe z’Imana hari\nukunesha kudasanzwe kw’Imana Imana nyamana iratabara kurugamba. Yatunguye\nGidiyoni asekura ingano yihisha abamidiyani iramubwira Iti Gidiyoni weee genda\ngenda ukw’imbaraga za we zingana. Garcons: Uzanesha \n\nTous:\nabamidiyani. R/Mbega imbaraga z’Imana mbega gukomera kw’Imana. \n\n2.Yatunguye\nna Yosuwa kurugamba abona umugaboarabaza ati yewe muntu Uri uwo mubacu cg se\nuri uwo mubabisha ati oya sindi uwo mubabisha Ndiumugaba w’izo mu ijuru manuwe\nno gutabara, abagenda imbere baranesha\n\n3.\nYatunguye Marodekayi n’Abayuda babibonye baratangara babwira Hamani, Hamani\nHamani wehe wibeshya kugambanira abayuda ni Ukutamenya ibabamo.Ni inyembaraga,\nxtimes"
   }
 ]

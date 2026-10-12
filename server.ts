@@ -13,6 +13,13 @@ import crypto from 'crypto';
 import multer from 'multer';
 import PDFDocument from 'pdfkit';
 import { db, initDatabase, logActivity, getMomoDonationSettings, updateMomoDonationSettings } from './server/db.js';
+import { syncOfficialDocumentSongs } from './server/officialSongsSync.js';
+import {
+  parseSongDocumentToJSON,
+  upsertSongRecords,
+  parseAndUpsertSongDocument,
+  type ParsedSongItem
+} from './server/songDocumentParser.js';
 import {
   generateToken,
   generatePasswordResetToken,
@@ -2908,6 +2915,151 @@ app.get('/api/admin/songs/stats', requireAdmin, (req: AuthRequest, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch song stats' });
+  }
+});
+
+// Official document songs sync report
+app.get('/api/admin/songs/official-import-report', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const report = syncOfficialDocumentSongs(db);
+    res.json(report);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to generate official import report' });
+  }
+});
+
+// Trigger official document songs re-sync
+app.post('/api/admin/songs/sync-official', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const report = syncOfficialDocumentSongs(db);
+    logActivity(req.user!.id, req.user!.name, req.user!.role, 'SYNC_OFFICIAL_SONGS', 'songs', 'all', `Synchronized ${report.totalDetected} official document choir songs`);
+    broadcastRealtimeEvent('SONG_SYNC', { type: 'OFFICIAL_SONGS_SYNCED', count: report.totalDetected });
+    res.json({ success: true, report });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to sync official songs' });
+  }
+});
+
+// -------------------------------------------------------------
+// Secure Document Parsing & Upsert Utility Endpoints
+// -------------------------------------------------------------
+
+// 1. Parse text document or uploaded file into JSON format with schema: { title, category, lyrics }
+app.post('/api/admin/songs/parse-document', requireAdmin, upload.single('file'), async (req: AuthRequest, res) => {
+  try {
+    let documentText = '';
+    if (req.file) {
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      if (ext === '.docx') {
+        const result = await mammoth.extractRawText({ path: req.file.path });
+        documentText = result.value || '';
+      } else {
+        documentText = fs.readFileSync(req.file.path, 'utf8');
+      }
+      try { fs.unlinkSync(req.file.path); } catch (e) {}
+    } else if (req.body.text && typeof req.body.text === 'string') {
+      documentText = req.body.text;
+    } else {
+      return res.status(400).json({ error: 'Nta nyandiko yatanzwe (No document text or file provided)' });
+    }
+
+    if (!documentText.trim()) {
+      return res.status(400).json({ error: 'Inyandiko irarangiye nta magambo arimo (Document text is empty)' });
+    }
+
+    const songs = parseSongDocumentToJSON(documentText);
+    res.json({
+      success: true,
+      count: songs.length,
+      songs
+    });
+  } catch (err: any) {
+    console.error('Error parsing song document to JSON:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikosa mu gusesengura inyandiko' });
+  }
+});
+
+// 2. Upsert parsed songs into database with duplicate title check
+app.post('/api/admin/songs/upsert-parsed', requireAdmin, (req: AuthRequest, res) => {
+  try {
+    const { songs } = req.body;
+    if (!Array.isArray(songs) || songs.length === 0) {
+      return res.status(400).json({ error: 'Nta ndirimbo zatanzwe (No songs array provided in body)' });
+    }
+
+    const report = upsertSongRecords(songs, db);
+
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'UPSERT_SONGS',
+      'songs',
+      'batch',
+      `Upserted ${report.totalProcessed} songs (inserted: ${report.insertedCount}, updated: ${report.updatedCount})`
+    );
+
+    broadcastRealtimeEvent('songs_updated', {
+      action: 'batch_upsert',
+      insertedCount: report.insertedCount,
+      updatedCount: report.updatedCount
+    });
+
+    res.json({
+      success: true,
+      report
+    });
+  } catch (err: any) {
+    console.error('Error upserting songs:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikosa mu kubika indirimbo' });
+  }
+});
+
+// 3. End-to-end: Parse text document into JSON and upsert in one secure step
+app.post('/api/admin/songs/parse-and-upsert', requireAdmin, upload.single('file'), async (req: AuthRequest, res) => {
+  try {
+    let documentText = '';
+    if (req.file) {
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      if (ext === '.docx') {
+        const result = await mammoth.extractRawText({ path: req.file.path });
+        documentText = result.value || '';
+      } else {
+        documentText = fs.readFileSync(req.file.path, 'utf8');
+      }
+      try { fs.unlinkSync(req.file.path); } catch (e) {}
+    } else if (req.body.text && typeof req.body.text === 'string') {
+      documentText = req.body.text;
+    } else {
+      return res.status(400).json({ error: 'Nta nyandiko yatanzwe (No document text or file provided)' });
+    }
+
+    const summary = parseAndUpsertSongDocument(documentText, db);
+
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'IMPORT_SONG_DOCUMENT',
+      'songs',
+      'batch',
+      `Imported and upserted ${summary.parsedCount} songs (inserted: ${summary.insertedCount}, updated: ${summary.updatedCount})`
+    );
+
+    broadcastRealtimeEvent('songs_updated', {
+      action: 'document_import',
+      parsedCount: summary.parsedCount,
+      insertedCount: summary.insertedCount,
+      updatedCount: summary.updatedCount
+    });
+
+    res.json({
+      success: true,
+      summary
+    });
+  } catch (err: any) {
+    console.error('Error in parse-and-upsert:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikosa mu gusesengura no kubika indirimbo' });
   }
 });
 
