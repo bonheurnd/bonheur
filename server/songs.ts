@@ -11,7 +11,14 @@ import {
   parseSongDocumentToJSON,
   upsertSongRecords,
   parseAndUpsertSongDocument,
+  upsertSongRecord,
+  manageSongRecord,
+  upsertSongByTitle,
+  findExistingSongByTitle,
+  normalizeTitle,
   type ParsedSongItem,
+  type SongRecordInput,
+  type ManageSongRecordResult,
   type UpsertSongResult,
   type UpsertSongsReport,
   type DocumentImportSummary,
@@ -27,10 +34,17 @@ export {
   parseSongDocumentToJSON,
   upsertSongRecords,
   parseAndUpsertSongDocument,
+  upsertSongRecord,
+  manageSongRecord,
+  upsertSongByTitle,
+  findExistingSongByTitle,
+  normalizeTitle,
   parseSixteenSongs,
   upsertSixteenSongs,
   RAW_16_SONGS_DOCUMENT_TEXT,
   type ParsedSongItem,
+  type SongRecordInput,
+  type ManageSongRecordResult,
   type UpsertSongResult,
   type UpsertSongsReport,
   type DocumentImportSummary,
@@ -996,5 +1010,53 @@ songsRouter.post('/import', requireAdmin, upload.single('file'), async (req: Aut
   } catch (err: any) {
     console.error('Song import error:', err);
     res.status(500).json({ error: err.message || 'Habaye ikosa mu kwinjiza indirimbo' });
+  }
+});
+
+// -------------------------------------------------------------
+// 12. POST: MANAGE SONG RECORD (UPSERT BY UNIQUE TITLE)
+// -------------------------------------------------------------
+songsRouter.post('/manage-record', optionalAuth, (req: AuthRequest, res: Response) => {
+  try {
+    const songInput = req.body.song || req.body;
+    if (!songInput || typeof songInput !== 'object' || !songInput.title) {
+      return res.status(400).json({ error: 'Nta ndirimbo cyangwa umutwe watanzwe (Song object with title is required)' });
+    }
+
+    const result = upsertSongRecord(songInput, db);
+
+    if (req.user) {
+      logActivity(
+        req.user.id,
+        req.user.name,
+        req.user.role,
+        result.action === 'inserted' ? 'CREATE_SONG' : 'UPDATE_SONG',
+        'songs',
+        result.song_id,
+        `${result.action === 'inserted' ? 'Inserted new' : 'Updated existing'} song "${result.title}" (ID: ${result.song_id})`
+      );
+    }
+
+    res.json({
+      success: true,
+      result
+    });
+  } catch (err: any) {
+    console.error('Failed to manage song record:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikosa mu gucunga indirimbo' });
+  }
+});
+
+songsRouter.post('/upsert-record', optionalAuth, (req: AuthRequest, res: Response) => {
+  try {
+    const songInput = req.body.song || req.body;
+    if (!songInput || typeof songInput !== 'object' || !songInput.title) {
+      return res.status(400).json({ error: 'Nta ndirimbo cyangwa umutwe watanzwe (Song object with title is required)' });
+    }
+
+    const result = upsertSongRecord(songInput, db);
+    res.json({ success: true, result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to upsert song' });
   }
 });

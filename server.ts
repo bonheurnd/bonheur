@@ -18,7 +18,13 @@ import {
   parseSongDocumentToJSON,
   upsertSongRecords,
   parseAndUpsertSongDocument,
-  type ParsedSongItem
+  upsertSongRecord,
+  manageSongRecord,
+  upsertSongByTitle,
+  findExistingSongByTitle,
+  type ParsedSongItem,
+  type SongRecordInput,
+  type ManageSongRecordResult
 } from './server/songDocumentParser.js';
 import {
   parseSixteenSongs,
@@ -3123,6 +3129,49 @@ app.post('/api/admin/songs/parse-and-upsert', requireAdmin, upload.single('file'
     res.status(500).json({ error: err.message || 'Habaye ikosa mu gusesengura no kubika indirimbo' });
   }
 });
+
+// 4. Service endpoint to manage a song record (upsert based on title unique identifier)
+const handleManageSongRecord = (req: AuthRequest, res: any) => {
+  try {
+    const songInput = req.body.song || req.body;
+    if (!songInput || typeof songInput !== 'object' || !songInput.title) {
+      return res.status(400).json({ error: 'Nta ndirimbo cyangwa umutwe watanzwe (Song object with title is required)' });
+    }
+
+    const result = upsertSongRecord(songInput, db);
+
+    if (req.user) {
+      logActivity(
+        req.user.id,
+        req.user.name,
+        req.user.role,
+        result.action === 'inserted' ? 'CREATE_SONG' : 'UPDATE_SONG',
+        'songs',
+        result.song_id,
+        `${result.action === 'inserted' ? 'Inserted new' : 'Updated existing'} song "${result.title}" (ID: ${result.song_id}) via unique title check`
+      );
+    }
+
+    broadcastRealtimeEvent('songs_updated', {
+      action: result.action,
+      song_id: result.song_id,
+      title: result.title
+    });
+
+    res.json({
+      success: true,
+      result
+    });
+  } catch (err: any) {
+    console.error('Error in manage-record service:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikosa mu gucunga indirimbo' });
+  }
+};
+
+app.post('/api/admin/songs/manage-record', requireAdmin, handleManageSongRecord);
+app.post('/api/admin/songs/upsert-record', requireAdmin, handleManageSongRecord);
+app.post('/api/songs/manage-record', optionalAuth, handleManageSongRecord);
+app.post('/api/songs/upsert-record', optionalAuth, handleManageSongRecord);
 
 // Import songs from CSV, Word (.docx), text file, or JSON array
 app.post('/api/admin/songs/import', requireAdmin, upload.single('file'), async (req: AuthRequest, res) => {

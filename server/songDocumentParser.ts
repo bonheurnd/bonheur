@@ -14,6 +14,44 @@ export interface ParsedSongItem {
   category: SongCategoryName;
   lyrics: string;
   song_number?: string;
+  composer?: string;
+  description?: string;
+  language?: string;
+  release_date?: string;
+  release_status?: 'released' | 'unreleased' | string;
+  status?: 'published' | 'draft' | string;
+  solfa_notation?: string;
+  cover_image_url?: string;
+  lyrics_pdf_url?: string;
+  lyrics_pdf_filename?: string;
+  access_password?: string;
+  display_order?: number;
+  created_by?: string;
+  [key: string]: any;
+}
+
+export interface SongRecordInput {
+  title: string;
+  category?: SongCategoryName | string;
+  category_id?: string;
+  lyrics?: string;
+  content?: string;
+  song_number?: string | number;
+  number?: string | number;
+  composer?: string;
+  description?: string;
+  language?: string;
+  release_date?: string;
+  release_status?: 'released' | 'unreleased' | string;
+  status?: 'published' | 'draft' | string;
+  solfa_notation?: string;
+  cover_image_url?: string;
+  lyrics_pdf_url?: string;
+  lyrics_pdf_filename?: string;
+  access_password?: string;
+  display_order?: number;
+  created_by?: string;
+  [key: string]: any;
 }
 
 export interface UpsertSongResult {
@@ -24,6 +62,23 @@ export interface UpsertSongResult {
   song_number?: string;
   lyrics_length: number;
   reason?: string;
+}
+
+export interface ManageSongRecordResult extends UpsertSongResult {
+  is_new: boolean;
+  category_id: string;
+  preservedMetadata?: {
+    id: string;
+    created_at?: string;
+    created_by?: string;
+    views_count?: number;
+    shares_count?: number;
+    composer?: string;
+    description?: string;
+    cover_image_url?: string;
+    lyrics_pdf_url?: string;
+  };
+  song?: any;
 }
 
 export interface UpsertSongsReport {
@@ -65,6 +120,20 @@ export function mapCategoryToId(category: SongCategoryName | string): string {
   if (norm.includes('IJURU')) return 'cat_ijuru';
   if (norm.includes('GUSHIMA')) return 'cat_gushima';
   if (norm.includes('KWIZERA')) return 'cat_kwizera';
+  return 'cat_agakiza';
+}
+
+/**
+ * Normalizes input to one of the four approved category database IDs:
+ * cat_agakiza, cat_ijuru, cat_gushima, cat_kwizera.
+ */
+export function resolveCategoryId(input?: string | null): string {
+  if (!input) return 'cat_agakiza';
+  const clean = input.trim().toLowerCase();
+  if (clean.includes('agakiza') || clean === '1' || clean === 'cat_agakiza') return 'cat_agakiza';
+  if (clean.includes('ijuru') || clean === '2' || clean === 'cat_ijuru') return 'cat_ijuru';
+  if (clean.includes('gushima') || clean === '3' || clean === 'cat_gushima') return 'cat_gushima';
+  if (clean.includes('kwizera') || clean === '4' || clean === 'cat_kwizera') return 'cat_kwizera';
   return 'cat_agakiza';
 }
 
@@ -221,145 +290,396 @@ export function parseSongDocumentToJSON(documentText: unknown): ParsedSongItem[]
 }
 
 /**
+ * Looks up an existing song in the database by title using case-insensitive
+ * and punctuation-normalized comparison to ensure no duplicate titles exist.
+ */
+export function findExistingSongByTitle(
+  title: string,
+  dbService: DbWrapper = defaultDb,
+  lookupCache?: Map<string, any>
+): any | null {
+  if (!title || typeof title !== 'string') return null;
+  const cleanTitle = title.trim();
+  if (!cleanTitle) return null;
+  const normTitle = normalizeTitle(cleanTitle);
+
+  if (lookupCache && lookupCache.has(normTitle)) {
+    return lookupCache.get(normTitle);
+  }
+
+  // 1. Direct query check for exact or case-insensitive title
+  const exactMatch = dbService.prepare(`
+    SELECT *
+    FROM songs
+    WHERE LOWER(TRIM(title)) = LOWER(TRIM(?))
+      AND (is_deleted = 0 OR is_deleted IS NULL)
+    LIMIT 1
+  `).get(cleanTitle);
+
+  if (exactMatch) {
+    if (lookupCache) lookupCache.set(normTitle, exactMatch);
+    return exactMatch;
+  }
+
+  // 2. Scan active songs with normalized comparison (ignoring apostrophes, periods, punctuation)
+  const activeSongs = dbService.prepare(`
+    SELECT *
+    FROM songs
+    WHERE is_deleted = 0 OR is_deleted IS NULL
+  `).all() as any[];
+
+  for (const s of activeSongs) {
+    if (normalizeTitle(s.title) === normTitle) {
+      if (lookupCache) lookupCache.set(normTitle, s);
+      return s;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Service function in the backend to manage song records.
+ * Accepts a song object and uses its 'title' as a unique identifier.
+ * 
+ * Requirement:
+ * "This function must check the database for an existing song with the same title;
+ * if found, update the existing record (preserving IDs and existing metadata),
+ * and if not found, perform a new insertion to ensure no duplicates are created
+ * during the bulk import process."
+ * 
+ * @param songInput - The song object to manage
+ * @param dbService - Database wrapper service instance (defaults to defaultDb)
+ * @param lookupCache - Optional Map cache of normalized title -> existing record for batch performance
+ * @returns ManageSongRecordResult with action ('inserted' | 'updated'), IDs, and preserved metadata
+ */
+export function upsertSongRecord(
+  songInput: SongRecordInput | ParsedSongItem | Record<string, any>,
+  dbService: DbWrapper = defaultDb,
+  lookupCache?: Map<string, any>
+): ManageSongRecordResult {
+  if (!songInput || typeof songInput !== 'object') {
+    throw new TypeError('songInput must be a valid song object');
+  }
+
+  const rawTitle = typeof songInput.title === 'string' ? songInput.title : '';
+  const cleanTitle = rawTitle.trim();
+  if (!cleanTitle) {
+    throw new Error('Song object must contain a non-empty title');
+  }
+
+  const normTitle = normalizeTitle(cleanTitle);
+  const existing = findExistingSongByTitle(cleanTitle, dbService, lookupCache);
+
+  const categoryName = songInput.category
+    ? normalizeCategoryName(String(songInput.category))
+    : (existing?.category_id ? normalizeCategoryName(existing.category_id) : 'AGAKIZA');
+
+  const categoryId = songInput.category_id
+    ? resolveCategoryId(String(songInput.category_id))
+    : mapCategoryToId(categoryName);
+
+  const rawLyrics = typeof songInput.lyrics === 'string'
+    ? songInput.lyrics
+    : (typeof songInput.content === 'string' ? songInput.content : '');
+
+  const songNum = songInput.song_number !== undefined && songInput.song_number !== null
+    ? String(songInput.song_number).trim()
+    : (songInput.number !== undefined && songInput.number !== null ? String(songInput.number).trim() : null);
+
+  const parsedOrder = songNum ? parseInt(songNum, 10) : NaN;
+
+  if (existing) {
+    // -------------------------------------------------------------
+    // EXISTING RECORD FOUND: UPDATE (Preserving IDs & Existing Metadata)
+    // -------------------------------------------------------------
+    const preservedId = existing.id;
+
+    // Preserve existing metadata unless explicitly provided in songInput
+    const finalSongNumber = songNum || existing.song_number || null;
+    const finalComposer = (songInput.composer && String(songInput.composer).trim())
+      ? String(songInput.composer).trim()
+      : (existing.composer || 'La Lumiere Choir');
+    const finalDescription = (songInput.description && String(songInput.description).trim())
+      ? String(songInput.description).trim()
+      : (existing.description || `Indirimbo muri ${categoryName} - Chorale La Lumiere`);
+    const finalCoverImageUrl = (songInput.cover_image_url && String(songInput.cover_image_url).trim())
+      ? String(songInput.cover_image_url).trim()
+      : (existing.cover_image_url || '');
+    const finalLyricsPdfUrl = (songInput.lyrics_pdf_url && String(songInput.lyrics_pdf_url).trim())
+      ? String(songInput.lyrics_pdf_url).trim()
+      : (existing.lyrics_pdf_url || null);
+    const finalLyricsPdfFilename = (songInput.lyrics_pdf_filename && String(songInput.lyrics_pdf_filename).trim())
+      ? String(songInput.lyrics_pdf_filename).trim()
+      : (existing.lyrics_pdf_filename || null);
+    const finalReleaseStatus = songInput.release_status
+      ? String(songInput.release_status)
+      : (existing.release_status || 'released');
+    const finalReleaseDate = songInput.release_date
+      ? String(songInput.release_date)
+      : (existing.release_date || '2016-03-08');
+    const finalStatus = songInput.status
+      ? String(songInput.status)
+      : (existing.status || 'published');
+    const finalDisplayOrder = songInput.display_order !== undefined && songInput.display_order !== null
+      ? Number(songInput.display_order)
+      : (!isNaN(parsedOrder) ? parsedOrder : (existing.display_order || 1));
+
+    dbService.prepare(`
+      UPDATE songs
+      SET title = ?,
+          song_number = ?,
+          composer = ?,
+          category_id = ?,
+          release_status = ?,
+          release_date = ?,
+          description = ?,
+          cover_image_url = ?,
+          lyrics_pdf_url = ?,
+          lyrics_pdf_filename = ?,
+          status = ?,
+          display_order = ?,
+          is_deleted = 0,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      cleanTitle,
+      finalSongNumber,
+      finalComposer,
+      categoryId,
+      finalReleaseStatus,
+      finalReleaseDate,
+      finalDescription,
+      finalCoverImageUrl,
+      finalLyricsPdfUrl,
+      finalLyricsPdfFilename,
+      finalStatus,
+      finalDisplayOrder,
+      preservedId
+    );
+
+    // Update lyrics while preserving existing lyrics ID and created_at
+    let finalLyricsLength = 0;
+    const existingLyrics = dbService.prepare(`
+      SELECT id, content, solfa_notation, language, created_at
+      FROM lyrics
+      WHERE song_id = ?
+    `).get(preservedId) as any;
+
+    if (existingLyrics) {
+      const updatedLyricsContent = rawLyrics.trim() ? rawLyrics : existingLyrics.content;
+      finalLyricsLength = updatedLyricsContent.length;
+      const updatedSolfa = songInput.solfa_notation !== undefined
+        ? songInput.solfa_notation
+        : existingLyrics.solfa_notation;
+      const updatedLang = songInput.language || existingLyrics.language || 'rw';
+
+      dbService.prepare(`
+        UPDATE lyrics
+        SET content = ?,
+            solfa_notation = ?,
+            language = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        updatedLyricsContent,
+        updatedSolfa,
+        updatedLang,
+        existingLyrics.id
+      );
+    } else if (rawLyrics.trim() || songInput.solfa_notation) {
+      finalLyricsLength = rawLyrics.length;
+      dbService.prepare(`
+        INSERT INTO lyrics (id, song_id, content, solfa_notation, language, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(
+        `lyr_${preservedId}`,
+        preservedId,
+        rawLyrics,
+        songInput.solfa_notation || null,
+        songInput.language || 'rw'
+      );
+    }
+
+    const updatedRecord = {
+      ...existing,
+      id: preservedId,
+      title: cleanTitle,
+      song_number: finalSongNumber,
+      category_id: categoryId,
+      composer: finalComposer,
+      description: finalDescription,
+      cover_image_url: finalCoverImageUrl
+    };
+
+    if (lookupCache) {
+      lookupCache.set(normTitle, updatedRecord);
+    }
+
+    return {
+      title: cleanTitle,
+      category: categoryName,
+      category_id: categoryId,
+      action: 'updated',
+      song_id: preservedId,
+      song_number: finalSongNumber || undefined,
+      lyrics_length: finalLyricsLength,
+      is_new: false,
+      preservedMetadata: {
+        id: preservedId,
+        created_at: existing.created_at,
+        created_by: existing.created_by,
+        views_count: existing.views_count,
+        shares_count: existing.shares_count,
+        composer: existing.composer,
+        description: existing.description,
+        cover_image_url: existing.cover_image_url,
+        lyrics_pdf_url: existing.lyrics_pdf_url
+      },
+      song: updatedRecord
+    };
+  } else {
+    // -------------------------------------------------------------
+    // NO EXISTING RECORD: INSERT (Ensuring no duplicate titles)
+    // -------------------------------------------------------------
+    const safeId = `song_${categoryId.replace('cat_', '')}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const countRow = dbService.prepare('SELECT COUNT(*) as cnt FROM songs').get() as any;
+    const totalCount = countRow?.cnt || 0;
+    const displayOrder = !isNaN(parsedOrder)
+      ? parsedOrder
+      : (songInput.display_order !== undefined ? Number(songInput.display_order) : totalCount + 1);
+
+    const composer = (songInput.composer && String(songInput.composer).trim())
+      ? String(songInput.composer).trim()
+      : 'La Lumiere Choir';
+    const description = (songInput.description && String(songInput.description).trim())
+      ? String(songInput.description).trim()
+      : `Indirimbo muri ${categoryName} - Chorale La Lumiere`;
+    const releaseStatus = songInput.release_status ? String(songInput.release_status) : 'released';
+    const releaseDate = songInput.release_date ? String(songInput.release_date) : '2016-03-08';
+    const status = songInput.status ? String(songInput.status) : 'published';
+    const coverImageUrl = songInput.cover_image_url ? String(songInput.cover_image_url) : '';
+    const lyricsPdfUrl = songInput.lyrics_pdf_url ? String(songInput.lyrics_pdf_url) : null;
+    const lyricsPdfFilename = songInput.lyrics_pdf_filename ? String(songInput.lyrics_pdf_filename) : null;
+
+    dbService.prepare(`
+      INSERT INTO songs (
+        id, title, song_number, composer, category_id, release_status,
+        release_date, description, cover_image_url, lyrics_pdf_url, lyrics_pdf_filename,
+        status, is_deleted, display_order, created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
+    `).run(
+      safeId,
+      cleanTitle,
+      songNum || null,
+      composer,
+      categoryId,
+      releaseStatus,
+      releaseDate,
+      description,
+      coverImageUrl,
+      lyricsPdfUrl,
+      lyricsPdfFilename,
+      status,
+      displayOrder
+    );
+
+    if (rawLyrics || songInput.solfa_notation) {
+      dbService.prepare(`
+        INSERT INTO lyrics (id, song_id, content, solfa_notation, language, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(
+        `lyr_${safeId}`,
+        safeId,
+        rawLyrics,
+        songInput.solfa_notation || null,
+        songInput.language || 'rw'
+      );
+    }
+
+    const newRecord = {
+      id: safeId,
+      title: cleanTitle,
+      song_number: songNum || null,
+      category_id: categoryId,
+      composer,
+      description
+    };
+
+    if (lookupCache) {
+      lookupCache.set(normTitle, newRecord);
+    }
+
+    return {
+      title: cleanTitle,
+      category: categoryName,
+      category_id: categoryId,
+      action: 'inserted',
+      song_id: safeId,
+      song_number: songNum || undefined,
+      lyrics_length: rawLyrics.length,
+      is_new: true,
+      song: newRecord
+    };
+  }
+}
+
+/**
+ * Service function alias to manage a song record.
+ */
+export const manageSongRecord = upsertSongRecord;
+
+/**
+ * Service function alias to upsert a song by title uniqueness.
+ */
+export const upsertSongByTitle = upsertSongRecord;
+
+/**
  * Upserts parsed song records into the SQLite database using the existing database service.
- * 
- * Strict Requirement:
- * "ensuring no duplicate titles are created by checking for title existence before insertion"
- * 
- * For each song:
- * 1. Checks for title existence (case-insensitive & normalized title matching).
- * 2. If it exists: updates the song metadata & upserts lyrics to the matching record.
- * 3. If it does not exist: inserts a new song & lyrics record.
- * 
- * All queries are parameterized prepared statements, preventing SQL injection.
+ * Ensures zero duplicate titles are created by checking for title existence before insertion,
+ * updating existing records while preserving IDs and metadata, and inserting new records.
  */
 export function upsertSongRecords(
-  parsedSongs: ParsedSongItem[],
+  parsedSongs: Array<SongRecordInput | ParsedSongItem>,
   dbService: DbWrapper = defaultDb
 ): UpsertSongsReport {
   if (!Array.isArray(parsedSongs)) {
     throw new TypeError('parsedSongs must be an array');
   }
 
-  // Fetch all existing songs for title existence check
+  // Pre-load lookup map of normalized title -> existing record for batch performance
   const existingSongs = dbService.prepare(`
-    SELECT id, title, category_id, song_number
+    SELECT *
     FROM songs
     WHERE is_deleted = 0 OR is_deleted IS NULL
-  `).all() as Array<{ id: string; title: string; category_id: string; song_number: string }>;
+  `).all() as any[];
 
-  // Build a lookup map of normalized title -> existing song record
-  const existingByNormalizedTitle = new Map<string, { id: string; title: string; category_id: string; song_number: string }>();
+  const lookupCache = new Map<string, any>();
   for (const es of existingSongs) {
     const norm = normalizeTitle(es.title);
     if (norm) {
-      existingByNormalizedTitle.set(norm, es);
+      lookupCache.set(norm, es);
     }
   }
 
-  // Prepared statements for secure database operations
-  const updateSongStmt = dbService.prepare(`
-    UPDATE songs
-    SET title = ?,
-        song_number = COALESCE(?, song_number),
-        category_id = ?,
-        status = 'published',
-        release_status = 'released',
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
-
-  const insertSongStmt = dbService.prepare(`
-    INSERT INTO songs (
-      id, title, song_number, composer, category_id, release_status,
-      release_date, description, status, is_deleted, display_order, created_at, updated_at
-    ) VALUES (
-      ?, ?, ?, 'La Lumiere Choir', ?, 'released',
-      '2016-03-08', ?, 'published', 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-    )
-  `);
-
-  const selectLyricsStmt = dbService.prepare(`SELECT id FROM lyrics WHERE song_id = ?`);
-  const updateLyricsStmt = dbService.prepare(`UPDATE lyrics SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE song_id = ?`);
-  const insertLyricsStmt = dbService.prepare(`INSERT INTO lyrics (id, song_id, content, language, created_at, updated_at) VALUES (?, ?, ?, 'rw', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`);
-
+  const results: UpsertSongResult[] = [];
   let insertedCount = 0;
   let updatedCount = 0;
-  const results: UpsertSongResult[] = [];
 
   for (let idx = 0; idx < parsedSongs.length; idx++) {
     const item = parsedSongs[idx];
+    if (!item) continue;
     const cleanTitle = (item.title || '').trim();
     if (!cleanTitle) continue;
 
-    const normTitle = normalizeTitle(cleanTitle);
-    const categoryName = normalizeCategoryName(item.category);
-    const categoryId = mapCategoryToId(categoryName);
-    const rawLyrics = typeof item.lyrics === 'string' ? item.lyrics : '';
-    const songNum = item.song_number ? String(item.song_number).trim() : null;
-
-    // Check title existence before insertion
-    const existing = existingByNormalizedTitle.get(normTitle);
-
-    if (existing) {
-      // Song title exists -> UPDATE (upsert without duplicating)
-      updateSongStmt.run(cleanTitle, songNum, categoryId, existing.id);
-
-      // Upsert raw lyrics
-      const existingLyrics = selectLyricsStmt.get(existing.id);
-      if (existingLyrics) {
-        updateLyricsStmt.run(rawLyrics, existing.id);
-      } else {
-        insertLyricsStmt.run(`lyr_${existing.id}`, existing.id, rawLyrics);
-      }
-
-      updatedCount++;
-      results.push({
-        title: cleanTitle,
-        category: categoryName,
-        action: 'updated',
-        song_id: existing.id,
-        song_number: songNum || existing.song_number,
-        lyrics_length: rawLyrics.length
-      });
-    } else {
-      // Song title does NOT exist -> INSERT new record
-      const safeId = `song_${categoryId.replace('cat_', '')}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const parsedOrder = songNum ? parseInt(songNum, 10) : NaN;
-      const displayOrder = !isNaN(parsedOrder) ? parsedOrder : (existingSongs.length + insertedCount + 1);
-      const description = `Indirimbo muri ${categoryName} - Chorale La Lumiere`;
-
-      insertSongStmt.run(
-        safeId,
-        cleanTitle,
-        songNum,
-        categoryId,
-        description,
-        displayOrder
-      );
-
-      insertLyricsStmt.run(`lyr_${safeId}`, safeId, rawLyrics);
-
-      // Register into lookup map to ensure no duplicate titles within the same batch
-      const newEntry = {
-        id: safeId,
-        title: cleanTitle,
-        category_id: categoryId,
-        song_number: songNum || ''
-      };
-      existingByNormalizedTitle.set(normTitle, newEntry);
-      existingSongs.push(newEntry);
-
-      insertedCount++;
-      results.push({
-        title: cleanTitle,
-        category: categoryName,
-        action: 'inserted',
-        song_id: safeId,
-        song_number: songNum || undefined,
-        lyrics_length: rawLyrics.length
-      });
-    }
+    const res = upsertSongRecord(item, dbService, lookupCache);
+    if (res.action === 'inserted') insertedCount++;
+    if (res.action === 'updated') updatedCount++;
+    results.push(res);
   }
 
   const skippedCount = results.filter(r => r.action === 'skipped').length;
