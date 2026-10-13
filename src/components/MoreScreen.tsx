@@ -24,6 +24,7 @@ import {
   HardDrive,
   Users,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 
 interface MoreScreenProps {
@@ -218,6 +219,32 @@ export const MoreScreen: React.FC<MoreScreenProps> = ({
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-slate-400" />
+        </button>
+
+        {/* La Lumiere AI Assistant */}
+        <button
+          onClick={() => onNavigateToTab('ai')}
+          className="w-full p-4 hover:bg-amber-50/50 flex items-center justify-between transition-colors text-left group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 flex items-center justify-center font-bold shadow-xs">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-900 block group-hover:text-amber-900 transition-colors">
+                  La Lumiere AI Assistant
+                </span>
+                <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 text-[9px] font-extrabold rounded-md uppercase tracking-wider">
+                  GenAI
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500">
+                Baza amagambo y'indirimbo, igisobanuro cyazo, n'ubufasha bwo kuririmba
+              </span>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-amber-600 transition-colors" />
         </button>
 
         {/* Secure Choir Member Directory */}

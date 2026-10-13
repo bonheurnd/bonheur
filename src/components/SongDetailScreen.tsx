@@ -9,6 +9,7 @@ import {
   saveAudioOffline,
   isSongDownloadedOffline,
 } from '../services/offlineStorage';
+import { ShareLyricsModal } from './ShareLyricsModal';
 import {
   ArrowLeft,
   Heart,
@@ -79,6 +80,7 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
   const [copyToast, setCopyToast] = useState<string | null>(null);
+  const [showShareLyricsModal, setShowShareLyricsModal] = useState(false);
 
   // Offline download state
   const [isDownloaded, setIsDownloaded] = useState<boolean>(false);
@@ -774,11 +776,22 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
           <button
             onClick={handleShare}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl transition-all active:scale-95 relative text-xs font-bold"
-            title="Sangiza abandi iyi ndirimbo (Share Song)"
+            title="Sangiza abandi iyi ndirimbo (Share Song Link)"
             aria-label="Share Song"
           >
             <Share2 className="w-3.5 h-3.5 text-slate-600" />
             <span className="hidden sm:inline">Sangiza</span>
+          </button>
+
+          {/* Share Lyrics Button: Native sharing dialog for Formatted Text or PNG Image Card */}
+          <button
+            onClick={() => setShowShareLyricsModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-900 hover:from-blue-800 hover:to-indigo-800 text-white rounded-xl transition-all active:scale-95 text-xs font-bold shadow-xs border border-blue-950/20"
+            title="Sangiza Amagambo y'indirimbo (Share Lyrics as Formatted Text or PNG Image)"
+            aria-label="Share Lyrics"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+            <span>Share Lyrics</span>
           </button>
 
           {/* PDF Lyrics Button */}
@@ -1185,21 +1198,22 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
               <p className="text-xs opacity-75 font-sans">
                 Sangiza abandi iyi ndirimbo ngo bafatanye natwe guhimbaza Imana.
               </p>
-              <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
                 <button
                   onClick={handleCopyLink}
-                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-white/10 hover:bg-white/20 border border-current/20 rounded-xl text-xs font-bold transition-all active:scale-95"
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 border border-current/20 rounded-xl text-xs font-bold transition-all active:scale-95"
                   title="Koporora link y'iyi ndirimbo (Copy Link)"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   <span>Koporora Link</span>
                 </button>
                 <button
-                  onClick={handleShare}
-                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95"
+                  onClick={() => setShowShareLyricsModal(true)}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-3.5 py-2 bg-gradient-to-r from-blue-900 to-indigo-900 hover:from-blue-800 hover:to-indigo-800 text-white rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95"
+                  title="Sangiza amagambo y'indirimbo nk'inyandiko cyangwa ifoto ya PNG"
                 >
-                  <Share2 className="w-4 h-4" />
-                  <span>Sangiza Abandi</span>
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Share Lyrics (Text / PNG)</span>
                 </button>
               </div>
             </div>
@@ -1684,6 +1698,14 @@ export const SongDetailScreen: React.FC<SongDetailScreenProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Share Lyrics Modal (Native Sharing Dialog: Formatted Text / PNG Image Card) */}
+      {showShareLyricsModal && song && (
+        <ShareLyricsModal
+          song={song}
+          onClose={() => setShowShareLyricsModal(false)}
+        />
       )}
     </div>
   );

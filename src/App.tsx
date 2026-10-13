@@ -20,6 +20,7 @@ import { MoreScreen } from './components/MoreScreen';
 import { AboutScreen } from './components/AboutScreen';
 import { ProfileScreen } from './components/ProfileScreen';
 import { AdminDashboard } from './components/AdminDashboard';
+import { AiAssistantScreen } from './components/AiAssistantScreen';
 import { GlobalAudioPlayer } from './components/GlobalAudioPlayer';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { AuthModal } from './components/AuthModal';
@@ -171,6 +172,13 @@ function AppContent() {
               <AdminDashboard
                 onSelectSong={handleSelectSong}
                 onNavigateHome={() => handleNavigateToTab('home')}
+              />
+            )}
+
+            {activeTab === 'ai' && (
+              <AiAssistantScreen
+                onSelectSong={handleSelectSong}
+                onNavigateToTab={handleNavigateToTab}
               />
             )}
           </>

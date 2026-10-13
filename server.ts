@@ -66,6 +66,7 @@ import {
   searchChoirDatabase,
   SUPPORTED_MODELS
 } from './server/aiService.js';
+import { aiRouter } from './src/server/routes/ai.js';
 import {
   exportRouter,
   getMembersData,
@@ -6241,74 +6242,10 @@ app.post('/api/admin/upload', requireAdmin, upload.single('file'), (req: AuthReq
 });
 
 // -------------------------------------------------------------
-// LA LUMIERE AI ASSISTANT API ENDPOINTS
+// LA LUMIERE AI ASSISTANT API ROUTER & ENDPOINTS
 // -------------------------------------------------------------
+app.use('/api/ai', aiRouter);
 
-// 1. Get AI Assistant public status & configuration
-app.get('/api/ai/config', (req, res) => {
-  try {
-    const config = getAiAssistantConfig();
-    res.json({
-      success: true,
-      enabled: config.enabled,
-      model: config.model,
-      hasApiKey: config.hasApiKey,
-      supportedModels: SUPPORTED_MODELS,
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: 'Failed to retrieve AI configuration' });
-  }
-});
-
-// 2. Chat with La Lumiere AI Assistant
-app.post('/api/ai/chat', async (req, res) => {
-  try {
-    // Rate limit check
-    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
-    const rateCheck = checkRateLimit(clientIp, 25, 60000);
-    if (!rateCheck.allowed) {
-      return res.status(429).json({
-        success: false,
-        error: 'Ubusabe buri hejuru y\'urugero rwemewe (Too many requests). Nyamuneka gerageza mukanya gato.',
-      });
-    }
-
-    const { messages, message } = req.body;
-    let chatMessages: Array<{ role: 'user' | 'assistant' | 'model'; content: string }> = [];
-
-    if (Array.isArray(messages) && messages.length > 0) {
-      chatMessages = messages
-        .filter((m: any) => m && typeof m.content === 'string' && m.content.trim())
-        .map((m: any) => ({
-          role: m.role === 'model' || m.role === 'assistant' ? 'assistant' : 'user',
-          content: String(m.content).slice(0, 2000), // Request size safety limit
-        }));
-    } else if (typeof message === 'string' && message.trim()) {
-      chatMessages = [{ role: 'user', content: message.trim().slice(0, 2000) }];
-    } else {
-      return res.status(400).json({
-        success: false,
-        error: 'Ubutumwa ntibwabonetse (No message or messages array provided)',
-      });
-    }
-
-    // Limit conversation history length to avoid token explosion
-    const truncatedHistory = chatMessages.slice(-10);
-
-    const result = await generateChatResponse(truncatedHistory, clientIp);
-    return res.json({
-      success: true,
-      reply: result.text,
-      matchedSongs: result.matchedSongs || [],
-    });
-  } catch (err: any) {
-    console.error('[AI Chat API Error]:', err);
-    return res.status(500).json({
-      success: false,
-      error: 'Habaye ikosa ryo gutunganya ubusabe bwa AI: ' + (err?.message || 'Server error'),
-    });
-  }
-});
 
 // 3. Admin settings update for AI assistant
 app.put('/api/admin/ai/settings', requireAdmin, (req: AuthRequest, res) => {

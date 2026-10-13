@@ -11,13 +11,13 @@ export interface AiConfig {
 
 // Model fallback list
 export const SUPPORTED_MODELS = [
-  'gemini-2.5-flash',
   'gemini-3.8-flash',
+  'gemini-2.5-flash',
   'gemini-flash-latest',
-  'gemini-2.5-pro',
+  'gemini-3.1-pro-preview',
 ];
 
-export const DEFAULT_MODEL = 'gemini-2.5-flash';
+export const DEFAULT_MODEL = 'gemini-3.8-flash';
 
 // Get AI assistant settings from app_settings table
 export function getAiAssistantConfig(): AiConfig {
