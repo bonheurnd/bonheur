@@ -349,9 +349,136 @@ export interface Announcement {
   content: string;
   category: string;
   image_url?: string;
-  status?: 'draft' | 'published';
+  status?: 'draft' | 'published' | 'archived';
+  visibility?: 'public' | 'members_only' | 'admin_only';
+  is_pinned?: number | boolean;
+  priority?: 'normal' | 'important' | 'urgent';
+  publish_date?: string;
+  expires_at?: string;
   is_active: number | boolean;
+  author_name?: string;
   created_at: string;
+  updated_at?: string;
+}
+
+export type AttendanceStatus = 'present' | 'absent' | 'excused' | 'late';
+export type AttendanceActivityType = 'rehearsal' | 'sunday_service' | 'concert' | 'meeting' | 'special_event' | 'other';
+
+export interface AttendanceRecord {
+  id?: string;
+  record_id?: string;
+  session_id?: string;
+  user_id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  choir_voice?: string;
+  choir_role?: string;
+  avatar_url?: string;
+  status: AttendanceStatus;
+  notes?: string;
+  marked_by?: string;
+  record_updated_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AttendanceSession {
+  id: string;
+  title: string;
+  activity_type: AttendanceActivityType;
+  session_date: string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
+  event_id?: string;
+  event_title?: string;
+  notes?: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  total_marked?: number;
+  present_count?: number;
+  late_count?: number;
+  excused_count?: number;
+  absent_count?: number;
+  my_status?: AttendanceStatus | 'unmarked';
+  my_notes?: string;
+}
+
+export interface AttendanceSummaryMember {
+  user_id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  choir_voice?: string;
+  choir_role?: string;
+  avatar_url?: string;
+  sessions_recorded: number;
+  present_count: number;
+  late_count: number;
+  excused_count: number;
+  absent_count: number;
+  percentage: number;
+}
+
+export interface AttendanceSummary {
+  total_sessions: number;
+  total_members: number;
+  overall_rate: number;
+  totals: {
+    present: number;
+    late: number;
+    excused: number;
+    absent: number;
+    recorded: number;
+  };
+  members: AttendanceSummaryMember[];
+  voice_breakdown: Array<{
+    section: string;
+    member_count: number;
+    present_count: number;
+    late_count: number;
+    excused_count: number;
+    absent_count: number;
+    total_recorded: number;
+    rate: number;
+  }>;
+}
+
+export interface EventReminder {
+  id: string;
+  event_id: string;
+  event_title?: string;
+  event_date?: string;
+  start_time?: string;
+  location?: string;
+  event_category?: string;
+  reminder_type: '24h' | '2h' | '1h' | 'custom';
+  minutes_before: number;
+  target_audience: 'all_members' | 'choir_members' | 'interested_only';
+  custom_message?: string;
+  channels: string[];
+  is_enabled: boolean;
+  status: 'scheduled' | 'sent' | 'cancelled';
+  delivered_count?: number;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ReminderLog {
+  id: string;
+  reminder_id: string;
+  event_id: string;
+  event_title?: string;
+  recipient_id?: string;
+  recipient_name?: string;
+  recipient_email?: string;
+  channel: string;
+  status: string;
+  error_message?: string;
+  sent_at: string;
 }
 
 export interface NotificationItem {

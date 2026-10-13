@@ -31,6 +31,7 @@ import {
   Share2,
   BarChart3,
   Calendar,
+  UserCheck,
 } from 'lucide-react';
 
 import { AdminLoginPortal } from './admin/AdminLoginPortal';
@@ -38,6 +39,7 @@ import { AdminOverviewTab } from './admin/AdminOverviewTab';
 import { AdminSongsTab } from './admin/AdminSongsTab';
 import { AdminSongManagement } from './AdminSongManagement';
 import { AdminEventsTab } from './admin/AdminEventsTab';
+import { AdminAttendanceTab } from './admin/AdminAttendanceTab';
 import { AdminMediaTab } from './admin/AdminMediaTab';
 import { AdminContentTab } from './admin/AdminContentTab';
 import { AdminCommentsTab } from './admin/AdminCommentsTab';
@@ -67,6 +69,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<
     | 'overview'
     | 'events'
+    | 'attendance'
     | 'songs'
     | 'media'
     | 'content'
@@ -305,6 +308,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {[
           { id: 'overview', label: 'Incamake', icon: Shield },
           { id: 'events', label: 'Ibikorwa (Events)', icon: Calendar },
+          { id: 'attendance', label: 'Ubwitabire (Attendance)', icon: UserCheck },
           { id: 'songs', label: 'Song Management', icon: BookOpen },
           { id: 'media', label: 'Amajwi & Amafoto', icon: Volume2 },
           { id: 'content', label: 'Ibirimo & Amatangazo', icon: FileText },
@@ -354,6 +358,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* 1b. EVENTS TAB */}
       {activeTab === 'events' && (
         <AdminEventsTab onRefreshOverview={loadDashboardData} />
+      )}
+
+      {/* 1c. ATTENDANCE TAB */}
+      {activeTab === 'attendance' && (
+        <AdminAttendanceTab />
       )}
 
       {/* 2. SONGS TAB (Dedicated AdminSongManagement component with Add, Edit, Delete, Overview tabs) */}

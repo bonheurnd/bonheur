@@ -420,7 +420,93 @@ function getSongsData(filters: any) {
 }
 
 function getAttendanceData(filters: any) {
-  const { date_from, date_to, event_id, search } = filters;
+  const { date_from, date_to, session_id, search, status } = filters;
+
+  // Check if real attendance records exist in database
+  const countRow = db.prepare('SELECT COUNT(*) as c FROM attendance_records').get() as any;
+  const hasRecords = (countRow?.c || 0) > 0;
+
+  if (hasRecords) {
+    let query = `
+      SELECT 
+        s.session_date,
+        s.title as session_title,
+        s.activity_type,
+        s.location,
+        u.name as member_name,
+        u.email as member_email,
+        u.phone as member_phone,
+        COALESCE(u.choir_voice, 'Unassigned') as choir_voice,
+        COALESCE(u.choir_role, 'Member') as choir_role,
+        r.status,
+        r.notes,
+        r.created_at as marked_at
+      FROM attendance_records r
+      JOIN attendance_sessions s ON r.session_id = s.id
+      JOIN users u ON r.user_id = u.id
+      WHERE s.is_deleted = 0
+    `;
+    const params: any[] = [];
+
+    if (session_id && session_id !== 'all') {
+      query += ` AND s.id = ?`;
+      params.push(session_id);
+    }
+    if (status && status !== 'all') {
+      query += ` AND r.status = ?`;
+      params.push(status);
+    }
+    if (date_from) {
+      query += ` AND s.session_date >= ?`;
+      params.push(date_from);
+    }
+    if (date_to) {
+      query += ` AND s.session_date <= ?`;
+      params.push(date_to);
+    }
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      query += ` AND (s.title LIKE ? OR u.name LIKE ? OR u.email LIKE ? OR u.phone LIKE ?)`;
+      params.push(term, term, term, term);
+    }
+
+    query += ` ORDER BY s.session_date DESC, u.name ASC`;
+    const records = db.prepare(query).all(...params) as any[];
+
+    const headers = [
+      'Itariki / Date',
+      'Igikorwa / Session Title',
+      'Ubwoko bw\'Igikorwa / Activity Type',
+      'Ahantu / Location',
+      'Amazina y\'Umuririmbyi / Member Name',
+      'Imeyili / Email',
+      'Telefoni / Phone',
+      'Ijwi muri Korali / Voice Section',
+      'Inshingano / Choir Role',
+      'Imiterere y\'Ubwitabire / Status',
+      'Ibisobanuro / Notes',
+      'Igihe Byandikiwe / Marked At',
+    ];
+
+    const rows = records.map(r => [
+      sanitizeCsvField(r.session_date),
+      sanitizeCsvField(r.session_title),
+      sanitizeCsvField(r.activity_type),
+      sanitizeCsvField(r.location || ''),
+      sanitizeCsvField(r.member_name),
+      sanitizeCsvField(r.member_email),
+      sanitizeCsvField(r.member_phone, true),
+      sanitizeCsvField(r.choir_voice),
+      sanitizeCsvField(r.choir_role),
+      sanitizeCsvField(r.status.toUpperCase()),
+      sanitizeCsvField(r.notes || ''),
+      sanitizeCsvField(r.marked_at || ''),
+    ]);
+
+    return { records, headers, rows, filename: `la-lumiere-attendance-${getDateSuffix()}.csv` };
+  }
+
+  // Fallback to event RSVPs if no attendance sessions have been created yet
   let query = `
     SELECT ei.event_id, ei.user_id, ei.created_at as rsvp_date,
            e.title as event_title, e.event_date, e.location as event_location, e.category as event_category,
@@ -433,25 +519,13 @@ function getAttendanceData(filters: any) {
   `;
   const params: any[] = [];
 
-  if (event_id && event_id !== 'all') {
-    query += ` AND ei.event_id = ?`;
-    params.push(event_id);
-  }
-
   if (date_from) {
     query += ` AND ei.created_at >= ?`;
     params.push(date_from);
   }
-
   if (date_to) {
     query += ` AND ei.created_at <= ?`;
     params.push(date_to + ' 23:59:59');
-  }
-
-  if (search && typeof search === 'string' && search.trim()) {
-    const term = `%${search.trim()}%`;
-    query += ` AND (e.title LIKE ? OR u.name LIKE ? OR u.email LIKE ? OR u.phone LIKE ?)`;
-    params.push(term, term, term, term);
   }
 
   query += ` ORDER BY ei.created_at DESC`;

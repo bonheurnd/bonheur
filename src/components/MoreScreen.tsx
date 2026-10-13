@@ -25,7 +25,9 @@ import {
   Users,
   ShieldCheck,
   Sparkles,
+  UserCheck,
 } from 'lucide-react';
+import { MemberAttendanceModal } from './MemberAttendanceModal';
 
 interface MoreScreenProps {
   onNavigateToTab: (tab: string) => void;
@@ -45,6 +47,7 @@ export const MoreScreen: React.FC<MoreScreenProps> = ({
   const [isDownloadingAll, setIsDownloadingAll] = useState<boolean>(false);
   const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number; title: string } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showAttendanceModal, setShowAttendanceModal] = useState<boolean>(false);
 
   const refreshOfflineCount = async () => {
     try {
@@ -276,6 +279,35 @@ export const MoreScreen: React.FC<MoreScreenProps> = ({
           <ChevronRight className="w-4 h-4 text-slate-400" />
         </button>
 
+        {/* Ubwitabire Bwanjye (My Attendance) */}
+        <button
+          onClick={() => {
+            if (user) setShowAttendanceModal(true);
+            else onOpenAuth();
+          }}
+          className="w-full p-4 hover:bg-slate-50 flex items-center justify-between transition-colors text-left"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-900 flex items-center justify-center">
+              <UserCheck className="w-5 h-5 text-blue-900" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-900 block">
+                  Ubwitabire Bwanjye (My Attendance)
+                </span>
+                <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 text-[9px] font-extrabold rounded uppercase">
+                  Imyitozo
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500">
+                Amateka y'ubwitabire mu myitozo, amateraniro n'ibitaramo
+              </span>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-slate-400" />
+        </button>
+
         {/* Admin Dashboard if Admin */}
         {isAdmin && (
           <button
@@ -379,6 +411,11 @@ export const MoreScreen: React.FC<MoreScreenProps> = ({
           <span>Ubuyobozi bwa Korali (Admin Portal)</span>
         </button>
       </div>
+
+      {/* Member Attendance Modal */}
+      {showAttendanceModal && (
+        <MemberAttendanceModal onClose={() => setShowAttendanceModal(false)} />
+      )}
     </div>
   );
 };

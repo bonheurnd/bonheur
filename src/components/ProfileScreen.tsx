@@ -18,7 +18,9 @@ import {
   Eye,
   EyeOff,
   ShieldCheck,
+  UserCheck,
 } from 'lucide-react';
+import { MemberAttendanceModal } from './MemberAttendanceModal';
 
 interface ProfileScreenProps {
   onSelectSong: (songId: string) => void;
@@ -51,6 +53,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   // Change password state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showAttendanceModal, setShowAttendanceModal] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [passwordMsg, setPasswordMsg] = useState('');
@@ -267,6 +270,32 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         )}
       </div>
 
+      {/* Member Attendance Management Section */}
+      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-900 flex items-center justify-center shadow-2xs">
+              <UserCheck className="w-5 h-5 text-blue-900" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-slate-900 font-serif">
+                Ubwitabire Bwanjye (My Attendance)
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Reba amateka y'ubwitabire mu myitozo, amateraniro n'ibitaramo
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowAttendanceModal(true)}
+            className="px-3.5 py-2 bg-blue-950 hover:bg-blue-900 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
+          >
+            <UserCheck className="w-3.5 h-3.5 text-amber-300" />
+            <span>Fungura</span>
+          </button>
+        </div>
+      </div>
+
       {/* Favorites List */}
       <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-3">
         <div className="flex items-center justify-between border-b pb-2">
@@ -401,6 +430,11 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Member Attendance Modal */}
+      {showAttendanceModal && (
+        <MemberAttendanceModal onClose={() => setShowAttendanceModal(false)} />
       )}
     </div>
   );

@@ -443,6 +443,71 @@ export function initDatabase() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    -- 27. Attendance Sessions (Rehearsals, Sunday Services, Meetings, Events)
+    CREATE TABLE IF NOT EXISTS attendance_sessions (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      activity_type TEXT NOT NULL DEFAULT 'rehearsal', -- 'rehearsal', 'sunday_service', 'concert', 'meeting', 'special_event'
+      session_date TEXT NOT NULL, -- 'YYYY-MM-DD'
+      start_time TEXT DEFAULT '15:00',
+      end_time TEXT DEFAULT '18:00',
+      location TEXT DEFAULT 'ADEPR Nyanza',
+      event_id TEXT,
+      notes TEXT,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      is_deleted INTEGER DEFAULT 0,
+      FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE SET NULL,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    -- 28. Attendance Records (Per Member Record for a Session)
+    CREATE TABLE IF NOT EXISTS attendance_records (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'present', -- 'present', 'absent', 'excused', 'late'
+      notes TEXT,
+      marked_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(session_id, user_id),
+      FOREIGN KEY (session_id) REFERENCES attendance_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (marked_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    -- 29. Event & Rehearsal Reminders
+    CREATE TABLE IF NOT EXISTS event_reminders (
+      id TEXT PRIMARY KEY,
+      event_id TEXT NOT NULL,
+      reminder_type TEXT NOT NULL DEFAULT '24h', -- '24h', '2h', '1h', 'custom'
+      minutes_before INTEGER NOT NULL DEFAULT 1440,
+      target_audience TEXT NOT NULL DEFAULT 'all_members', -- 'all_members', 'choir_members', 'interested_only'
+      custom_message TEXT,
+      channels TEXT NOT NULL DEFAULT '["in_app"]',
+      is_enabled INTEGER DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'scheduled', -- 'scheduled', 'sent', 'cancelled'
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+    );
+
+    -- 30. Reminder Delivery Logs
+    CREATE TABLE IF NOT EXISTS reminder_logs (
+      id TEXT PRIMARY KEY,
+      reminder_id TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      recipient_id TEXT,
+      channel TEXT NOT NULL DEFAULT 'in_app',
+      status TEXT NOT NULL DEFAULT 'delivered',
+      error_message TEXT,
+      sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (reminder_id) REFERENCES event_reminders(id) ON DELETE CASCADE
+    );
+
     -- Indexes for high performance
     CREATE INDEX IF NOT EXISTS idx_songs_status ON songs(release_status);
     CREATE INDEX IF NOT EXISTS idx_songs_category ON songs(category_id);
@@ -453,6 +518,13 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token_hash);
     CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
     CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
+    CREATE INDEX IF NOT EXISTS idx_attendance_sessions_date ON attendance_sessions(session_date);
+    CREATE INDEX IF NOT EXISTS idx_attendance_records_session ON attendance_records(session_id);
+    CREATE INDEX IF NOT EXISTS idx_attendance_records_user ON attendance_records(user_id);
+    CREATE INDEX IF NOT EXISTS idx_attendance_records_status ON attendance_records(status);
+    CREATE INDEX IF NOT EXISTS idx_event_reminders_event ON event_reminders(event_id);
+    CREATE INDEX IF NOT EXISTS idx_event_reminders_status ON event_reminders(status);
+    CREATE INDEX IF NOT EXISTS idx_reminder_logs_event ON reminder_logs(event_id);
   `);
 
   // Safe migrations for table alterations
@@ -506,13 +578,25 @@ export function initDatabase() {
   safeAddColumn('announcements', 'image_url TEXT');
   safeAddColumn('announcements', "status TEXT DEFAULT 'published'");
   safeAddColumn('announcements', 'created_by TEXT');
-  safeAddColumn('announcements', 'updated_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+  safeAddColumn('announcements', 'updated_at DATETIME');
   safeAddColumn('announcements', 'is_deleted INTEGER DEFAULT 0');
+  safeAddColumn('announcements', "visibility TEXT DEFAULT 'public'"); // 'public', 'members_only', 'admin_only'
+  safeAddColumn('announcements', 'is_pinned INTEGER DEFAULT 0');
+  safeAddColumn('announcements', 'publish_date TEXT');
+  safeAddColumn('announcements', 'expires_at TEXT');
+  safeAddColumn('announcements', "priority TEXT DEFAULT 'normal'"); // 'normal', 'important', 'urgent'
+  safeAddColumn('events', 'is_rehearsal INTEGER DEFAULT 0');
+  safeCreateIndex("CREATE INDEX IF NOT EXISTS idx_announcements_visibility ON announcements(visibility);");
+  safeCreateIndex("CREATE INDEX IF NOT EXISTS idx_announcements_pinned ON announcements(is_pinned);");
   safeAddColumn('comments', 'is_deleted INTEGER DEFAULT 0');
   safeAddColumn('documents', 'song_id TEXT');
   safeAddColumn('documents', "doc_type TEXT DEFAULT 'sheet_music'");
   safeAddColumn('content_articles', "type TEXT DEFAULT 'article'");
-  safeAddColumn('content_articles', 'published_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+  safeAddColumn('content_articles', 'published_at DATETIME');
+
+  try {
+    db.exec("UPDATE announcements SET updated_at = created_at WHERE updated_at IS NULL");
+  } catch (e) {}
 
   // Direct Rwanda Payment Gateway & Donation Settings Migrations
   safeAddColumn('payment_transactions', 'donor_email TEXT');

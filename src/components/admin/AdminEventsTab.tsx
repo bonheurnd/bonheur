@@ -24,7 +24,9 @@ import {
   Download,
   Image as ImageIcon,
   Share2,
+  Bell,
 } from 'lucide-react';
+import { AdminRemindersModal } from './AdminRemindersModal';
 
 interface AdminEventsTabProps {
   onRefreshOverview?: () => void;
@@ -41,6 +43,7 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({ onRefreshOvervie
   const [editingEvent, setEditingEvent] = useState<Partial<EventItem> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<EventItem | null>(null);
   const [viewInterestedEvent, setViewInterestedEvent] = useState<EventItem | null>(null);
+  const [reminderEvent, setReminderEvent] = useState<EventItem | null>(null);
   const [interestedUsersList, setInterestedUsersList] = useState<InterestedUser[]>([]);
   const [isLoadingInterested, setIsLoadingInterested] = useState<boolean>(false);
   const [interestedSearch, setInterestedSearch] = useState<string>('');
@@ -602,6 +605,17 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({ onRefreshOvervie
                       <span>{interestedCount} Bifuza kwitabira</span>
                     </button>
 
+                    {/* Schedule Reminders Button */}
+                    <button
+                      type="button"
+                      onClick={() => setReminderEvent(ev)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-amber-200/80"
+                      title="Tegura integuza z'iki gikorwa (Schedule Reminders)"
+                    >
+                      <Bell className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Integuza</span>
+                    </button>
+
                     {/* Publish / Unpublish Toggle */}
                     <button
                       type="button"
@@ -981,10 +995,18 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({ onRefreshOvervie
         message={`Waba wizeye ko ushaka gusiba igikorwa "${deleteTarget?.title}"? Ibi bizagikura mu bikorwa biteganyijwe bya Korali.`}
         confirmText="Yego, Siba Igikorwa"
         cancelText="Reka"
-        isDestructive={true}
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      {/* Reminders Modal */}
+      {reminderEvent && (
+        <AdminRemindersModal
+          event={reminderEvent}
+          onClose={() => setReminderEvent(null)}
+          onRefreshEvents={fetchEvents}
+        />
+      )}
     </div>
   );
 };

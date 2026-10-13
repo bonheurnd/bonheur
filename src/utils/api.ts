@@ -10,6 +10,7 @@ export interface SafeApiResponse<T = any> {
   statusText?: string;
   data: T | null;
   errorMessage: string | null;
+  error?: string | null;
 }
 
 /**
@@ -169,24 +170,27 @@ export async function safeFetchJson<T = any>(
   try {
     const res = await fetch(input, init);
     const { data, errorMessage } = await parseResponseSafely<T>(res);
-
     const isSuccess = res.ok && (!data || (typeof data === 'object' && (data as any).success !== false));
+    const errText = isSuccess ? null : (errorMessage || "Habaye ikosa ry'itumanaho");
     return {
       ok: isSuccess,
       status: res.status,
       statusText: res.statusText,
       data,
-      errorMessage: isSuccess ? null : (errorMessage || "Habaye ikosa ry'itumanaho"),
+      errorMessage: errText,
+      error: errText,
     };
   } catch (err: any) {
+    const errText =
+      err?.message ||
+      'Ntabwo bishobotse kwihuza na seriveri. Suzuma interineti yawe (Network connection error)';
     return {
       ok: false,
       status: 0,
       statusText: 'Network Error',
       data: null,
-      errorMessage:
-        err?.message ||
-        'Ntabwo bishobotse kwihuza na seriveri. Suzuma interineti yawe (Network connection error)',
+      errorMessage: errText,
+      error: errText,
     };
   }
 }

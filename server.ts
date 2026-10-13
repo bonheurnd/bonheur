@@ -67,13 +67,12 @@ import {
   SUPPORTED_MODELS
 } from './server/aiService.js';
 import { aiRouter } from './src/server/routes/ai.js';
-import {
-  exportRouter,
-  getMembersData,
-  getDonationsData,
-  getEventsData,
-  streamCsvResponse
-} from './server/export.js';
+import { exportRouter, getMembersData, getDonationsData, getEventsData, streamCsvResponse } from './server/export.js';
+import { broadcastRealtimeEvent, eventStreamClients } from './server/realtime.js';
+export { broadcastRealtimeEvent };
+import { attendanceRouter } from './server/routes/attendance.js';
+import { announcementsRouter } from './server/routes/announcements.js';
+import { remindersRouter, startReminderScheduler } from './server/routes/reminders.js';
 // @ts-ignore
 import mammoth from 'mammoth';
 
@@ -131,23 +130,6 @@ app.use('/audio', express.static(path.join(process.cwd(), 'public', 'audio')));
 // -------------------------------------------------------------
 // REAL-TIME EVENT STREAMING (Server-Sent Events / SSE)
 // -------------------------------------------------------------
-const eventStreamClients = new Set<express.Response>();
-
-export function broadcastRealtimeEvent(eventType: string, payload: any) {
-  const message = `event: ${eventType}\ndata: ${JSON.stringify({
-    type: eventType,
-    data: payload,
-    timestamp: new Date().toISOString()
-  })}\n\n`;
-
-  for (const client of eventStreamClients) {
-    try {
-      client.write(message);
-    } catch {
-      eventStreamClients.delete(client);
-    }
-  }
-}
 
 app.get('/api/events/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -2324,16 +2306,12 @@ app.post('/api/payments/webhook', handleIncomingWebhook);
 app.post('/api/donations/callback', handleIncomingWebhook);
 
 // -------------------------------------------------------------
-// ANNOUNCEMENTS & NOTIFICATIONS
+// ATTENDANCE, ANNOUNCEMENTS & EVENT REMINDERS ROUTERS
 // -------------------------------------------------------------
-app.get('/api/announcements', (req, res) => {
-  try {
-    const announcements = db.prepare('SELECT * FROM announcements WHERE is_active = 1 ORDER BY created_at DESC').all();
-    res.json(announcements);
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to fetch announcements' });
-  }
-});
+app.use('/api/attendance', attendanceRouter);
+app.use('/api/announcements', announcementsRouter);
+app.use('/api/admin/announcements', announcementsRouter);
+app.use('/api/reminders', remindersRouter);
 
 app.get('/api/notifications', requireAuth, (req: AuthRequest, res) => {
   try {
@@ -6350,6 +6328,7 @@ async function startServer() {
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`La Lumiere Choir App running at http://0.0.0.0:${PORT}`);
+    startReminderScheduler();
   });
 
   server.on('error', (err: any) => {
