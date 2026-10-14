@@ -5144,7 +5144,7 @@ app.post('/api/admin/users/bulk-remove', requireAdmin, (req: AuthRequest, res) =
         db.prepare(`DELETE FROM comments WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
         db.prepare(`DELETE FROM favorites WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
         db.prepare(`DELETE FROM notifications WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
-        db.prepare(`DELETE FROM event_interests WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
+        db.prepare(`DELETE FROM event_interested WHERE user_id IN (${finalPlaceholders})`).run(...finalTargetIds);
         db.prepare(`DELETE FROM users WHERE id IN (${finalPlaceholders})`).run(...finalTargetIds);
       } else {
         db.prepare(`UPDATE users SET is_disabled = 1 WHERE id IN (${finalPlaceholders})`).run(...finalTargetIds);

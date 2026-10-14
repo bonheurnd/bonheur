@@ -281,7 +281,7 @@ membersRouter.post('/', requireAdmin, (req: AuthRequest, res: Response) => {
 
     // Check duplicate by normalized phone
     if (normalizedPhone) {
-      const allUsers = db.prepare('SELECT id, name, phone FROM users WHERE phone IS NOT NULL AND phone != ""').all() as any[];
+      const allUsers = db.prepare("SELECT id, name, phone FROM users WHERE phone IS NOT NULL AND TRIM(phone) != ''").all() as any[];
       const match = allUsers.find(u => normalizePhoneNumber(u.phone) === normalizedPhone);
       if (match) {
         return res.status(409).json({
@@ -611,7 +611,7 @@ membersRouter.put('/:id', requireAdmin, (req: AuthRequest, res: Response) => {
     // Check phone uniqueness if phone is changed
     if (phone && phone.trim()) {
       const normPhone = normalizePhoneNumber(phone);
-      const allPhones = db.prepare('SELECT id, name, phone FROM users WHERE id != ? AND phone IS NOT NULL AND phone != ""').all(id) as any[];
+      const allPhones = db.prepare("SELECT id, name, phone FROM users WHERE id != ? AND phone IS NOT NULL AND TRIM(phone) != ''").all(id) as any[];
       const phoneConflict = allPhones.find(u => normalizePhoneNumber(u.phone) === normPhone);
       if (phoneConflict) {
         return res.status(409).json({ error: `Iyi telefone ifitwe n'undi muntu: ${phoneConflict.name}` });
