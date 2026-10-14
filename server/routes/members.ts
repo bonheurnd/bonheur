@@ -249,27 +249,199 @@ membersRouter.get(['/template', '/template/csv'], (req, res) => {
   }
 });
 
+export interface SanitizedMemberInput {
+  name: string;
+  phone: string | null;
+  normalizedPhone: string | null;
+  email: string | null;
+  voicePart: string;
+  choirRole: string;
+  status: 'active' | 'inactive';
+  isDisabled: number;
+  bio: string | null;
+}
+
+/**
+ * Validation & Sanitization Layer for Member Creation
+ * Verifies and sanitizes expected fields (name, phone, status, voicePart)
+ * to prevent empty string injections, malformed data, and schema mismatches.
+ */
+export function validateMemberPostInput(body: any): {
+  isValid: boolean;
+  errors: string[];
+  sanitized?: SanitizedMemberInput;
+} {
+  const errors: string[] = [];
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return {
+      isValid: false,
+      errors: ['Amakuru yahawe seriveri ntabwo yemewe (Request body must be a valid JSON object)'],
+    };
+  }
+
+  // 1. Sanitize & Verify Name (Required, 2-100 chars, no empty string injection)
+  let sanitizedName = '';
+  if (body.name === undefined || body.name === null) {
+    errors.push('Amazina y\'umunyamuryango arakenewe (Member name is required)');
+  } else if (typeof body.name !== 'string') {
+    errors.push('Amazina agomba kuba amagambo (Member name must be a string)');
+  } else {
+    // Strip control characters, trim, and collapse multiple consecutive whitespace
+    sanitizedName = body.name.replace(/[\x00-\x1F\x7F]/g, '').trim().replace(/\s+/g, ' ');
+    if (sanitizedName.length < 2) {
+      errors.push('Amazina agomba kugira byibuze inyuguti 2 (Member name must be at least 2 characters)');
+    } else if (sanitizedName.length > 100) {
+      errors.push('Amazina ntagomba kurenza inyuguti 100 (Member name cannot exceed 100 characters)');
+    }
+  }
+
+  // 2. Sanitize & Verify Phone (Optional, strictly mapped to null on empty to prevent empty string injection)
+  let sanitizedPhone: string | null = null;
+  let normalizedPhone: string | null = null;
+  if (body.phone !== undefined && body.phone !== null) {
+    if (typeof body.phone !== 'string' && typeof body.phone !== 'number') {
+      errors.push('Nimero ya telefone ntabwo yanditse neza (Phone must be a string or number)');
+    } else {
+      const rawPhone = String(body.phone).trim();
+      if (rawPhone.length > 0) {
+        const phoneRegex = /^\+?[0-9\s\-()]{7,25}$/;
+        const digitCount = rawPhone.replace(/\D/g, '').length;
+        if (!phoneRegex.test(rawPhone) || digitCount < 7 || digitCount > 15) {
+          errors.push('Nimero ya telefone ntabwo yemewe. Urugero: 078XXXXXXX cyangwa +25078XXXXXXX (Invalid phone number format)');
+        } else {
+          sanitizedPhone = rawPhone;
+          normalizedPhone = normalizePhoneNumber(rawPhone);
+        }
+      }
+      // If rawPhone is empty string, sanitizedPhone remains null to prevent empty string injection into DB
+    }
+  }
+
+  // 3. Sanitize & Verify Status (Expected: 'active' | 'inactive', defaults to 'active')
+  let sanitizedStatus: 'active' | 'inactive' = 'active';
+  if (body.status !== undefined && body.status !== null) {
+    if (typeof body.status !== 'string') {
+      errors.push('Imimerere igomba kuba "active" cyangwa "inactive" (Status must be a string)');
+    } else {
+      const normalizedStatus = body.status.trim().toLowerCase();
+      if (normalizedStatus === 'active') {
+        sanitizedStatus = 'active';
+      } else if (normalizedStatus === 'inactive') {
+        sanitizedStatus = 'inactive';
+      } else {
+        errors.push('Imimerere y\'umunyamuryango ntabwo yemewe. Hitamo "active" cyangwa "inactive" (Status must be "active" or "inactive")');
+      }
+    }
+  }
+
+  // 4. Sanitize & Verify Voice Part (accepts voicePart or choir_voice, matches against VALID_VOICES)
+  let sanitizedVoice = 'Choir Member';
+  const rawVoice = body.voicePart !== undefined ? body.voicePart : body.choir_voice;
+  if (rawVoice !== undefined && rawVoice !== null) {
+    if (typeof rawVoice !== 'string') {
+      errors.push('Ijwi rigomba kuba amagambo (Voice part must be a string)');
+    } else {
+      const trimmedVoice = rawVoice.trim();
+      if (trimmedVoice.length > 0) {
+        const match = VALID_VOICES.find(v => v.toLowerCase() === trimmedVoice.toLowerCase());
+        if (match) {
+          sanitizedVoice = match;
+        } else {
+          errors.push(`Ijwi ryatoranyijwe ntabwo ryemewe. Hitamo rimwe muri: ${VALID_VOICES.join(', ')} (Invalid voice part)`);
+        }
+      }
+    }
+  }
+
+  // 5. Sanitize & Verify Email (Optional, strictly validated if provided)
+  let sanitizedEmail: string | null = null;
+  if (body.email !== undefined && body.email !== null) {
+    if (typeof body.email !== 'string') {
+      errors.push('Imeli igomba kuba amagambo (Email must be a string)');
+    } else {
+      const trimmedEmail = body.email.trim();
+      if (trimmedEmail.length > 0) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(trimmedEmail) || trimmedEmail.length > 120) {
+          errors.push('Imeli yanditse nabi. Urugero: izina@urugero.rw (Invalid email format)');
+        } else {
+          sanitizedEmail = trimmedEmail.toLowerCase();
+        }
+      }
+    }
+  }
+
+  // 6. Sanitize Choir Role (Optional, defaults to 'Member')
+  let sanitizedRole = 'Member';
+  const rawRole = body.choir_role !== undefined ? body.choir_role : body.role;
+  if (rawRole !== undefined && rawRole !== null) {
+    if (typeof rawRole === 'string') {
+      const trimmedRole = rawRole.trim();
+      if (trimmedRole.length > 0) {
+        sanitizedRole = trimmedRole.slice(0, 60);
+      }
+    }
+  }
+
+  // 7. Sanitize Bio (Optional, null if empty)
+  let sanitizedBio: string | null = null;
+  if (body.bio !== undefined && body.bio !== null) {
+    if (typeof body.bio === 'string') {
+      const trimmedBio = body.bio.trim();
+      if (trimmedBio.length > 0) {
+        sanitizedBio = trimmedBio.slice(0, 500);
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    return { isValid: false, errors };
+  }
+
+  return {
+    isValid: true,
+    errors: [],
+    sanitized: {
+      name: sanitizedName,
+      phone: sanitizedPhone,
+      normalizedPhone,
+      email: sanitizedEmail,
+      voicePart: sanitizedVoice,
+      choirRole: sanitizedRole,
+      status: sanitizedStatus,
+      isDisabled: sanitizedStatus === 'inactive' ? 1 : 0,
+      bio: sanitizedBio,
+    },
+  };
+}
+
 // -------------------------------------------------------------
 // 3. ADD A MEMBER MANUALLY (ADMIN ONLY)
 // -------------------------------------------------------------
 membersRouter.post('/', requireAdmin, (req: AuthRequest, res: Response) => {
   try {
-    const { name, phone, email, choir_voice, choir_role, status = 'active', bio } = req.body;
-
-    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+    // 1. Validation & sanitization layer before any DB queries or SQL execution
+    const validation = validateMemberPostInput(req.body);
+    if (!validation.isValid || !validation.sanitized) {
       return res.status(400).json({
-        error: 'Amazina y\'umunyamuryango arakenewe (Member name is required, min 2 characters)',
+        error: validation.errors[0],
+        errors: validation.errors,
       });
     }
 
-    const trimmedName = name.trim();
-    const cleanEmail = normalizeEmail(email);
-    const cleanPhone = phone ? String(phone).trim() : '';
-    const normalizedPhone = normalizePhoneNumber(cleanPhone);
-    const finalStatus = status === 'inactive' ? 'inactive' : 'active';
-    const isDisabled = finalStatus === 'inactive' ? 1 : 0;
+    const {
+      name: trimmedName,
+      phone: cleanPhone,
+      normalizedPhone,
+      email: cleanEmail,
+      voicePart,
+      choirRole,
+      status: finalStatus,
+      isDisabled,
+      bio: cleanBio,
+    } = validation.sanitized;
 
-    // Check duplicate by email
+    // 2. Check duplicate by email
     if (cleanEmail) {
       const existingEmail = db.prepare('SELECT id, name FROM users WHERE LOWER(email) = ?').get(cleanEmail) as any;
       if (existingEmail) {
@@ -279,7 +451,7 @@ membersRouter.post('/', requireAdmin, (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Check duplicate by normalized phone
+    // 3. Check duplicate by normalized phone (using proper SQL string literals)
     if (normalizedPhone) {
       const allUsers = db.prepare("SELECT id, name, phone FROM users WHERE phone IS NOT NULL AND TRIM(phone) != ''").all() as any[];
       const match = allUsers.find(u => normalizePhoneNumber(u.phone) === normalizedPhone);
@@ -290,14 +462,15 @@ membersRouter.post('/', requireAdmin, (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Generate unique ID and secure initial temporary password
+    // 4. Generate unique ID and secure initial temporary password
     const memberId = 'usr_mem_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     const tempPassword = crypto.randomBytes(12).toString('hex');
     const passwordHash = hashPassword(tempPassword);
 
-    // Fallback email if not provided
+    // Fallback email if not provided (ensures DB unique constraint is satisfied)
     const finalEmail = cleanEmail || `member.${memberId.substring(8)}@lalumiere.local`;
 
+    // 5. Execute parameterized SQL query with strictly typed & sanitized fields
     db.prepare(`
       INSERT INTO users (
         id, name, email, password_hash, phone, role, choir_voice, choir_role, bio, status, is_disabled
@@ -307,13 +480,13 @@ membersRouter.post('/', requireAdmin, (req: AuthRequest, res: Response) => {
       trimmedName,
       finalEmail,
       passwordHash,
-      cleanPhone || null,
+      cleanPhone, // explicitly null if omitted or empty string
       'choir_member',
-      choir_voice || 'Choir Member',
-      choir_role || 'Member',
-      bio ? bio.trim() : null,
-      finalStatus,
-      isDisabled
+      voicePart, // verified valid choir voice part
+      choirRole,
+      cleanBio, // explicitly null if omitted or empty string
+      finalStatus, // strictly 'active' | 'inactive'
+      isDisabled // strictly 0 or 1
     );
 
     logActivity(
@@ -323,7 +496,7 @@ membersRouter.post('/', requireAdmin, (req: AuthRequest, res: Response) => {
       'CREATE_MEMBER',
       'users',
       memberId,
-      `Manually added member "${trimmedName}" (${choir_voice || 'Choir Member'}, status: ${finalStatus})`
+      `Manually added member "${trimmedName}" (${voicePart}, status: ${finalStatus})`
     );
 
     const createdMember = db.prepare(`
@@ -621,6 +794,16 @@ membersRouter.put('/:id', requireAdmin, (req: AuthRequest, res: Response) => {
     const newStatus = status === 'inactive' || status === 'active' ? status : (existing.status || 'active');
     const isDisabled = newStatus === 'inactive' ? 1 : 0;
 
+    const rawVoice = req.body.voicePart !== undefined ? req.body.voicePart : choir_voice;
+    let validatedVoice: string | null = null;
+    if (rawVoice !== undefined && rawVoice !== null) {
+      const trimmedVoice = String(rawVoice).trim();
+      if (trimmedVoice.length > 0) {
+        const match = VALID_VOICES.find(v => v.toLowerCase() === trimmedVoice.toLowerCase());
+        validatedVoice = match || trimmedVoice;
+      }
+    }
+
     db.prepare(`
       UPDATE users
       SET name = COALESCE(?, name),
@@ -634,14 +817,14 @@ membersRouter.put('/:id', requireAdmin, (req: AuthRequest, res: Response) => {
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
-      name ? name.trim() : null,
-      phone !== undefined ? (phone ? phone.trim() : null) : null,
-      email ? normalizeEmail(email) : null,
-      choir_voice ? choir_voice.trim() : null,
-      choir_role ? choir_role.trim() : null,
+      name && typeof name === 'string' && name.trim() ? name.trim() : null,
+      phone !== undefined ? (phone && String(phone).trim() ? String(phone).trim() : null) : null,
+      email && typeof email === 'string' && email.trim() ? normalizeEmail(email) : null,
+      validatedVoice,
+      choir_role && typeof choir_role === 'string' && choir_role.trim() ? choir_role.trim() : null,
       newStatus,
       isDisabled,
-      bio !== undefined ? (bio ? bio.trim() : null) : null,
+      bio !== undefined ? (bio && String(bio).trim() ? String(bio).trim() : null) : null,
       id
     );
 
