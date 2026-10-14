@@ -557,6 +557,7 @@ export function initDatabase() {
   safeCreateIndex('CREATE INDEX IF NOT EXISTS idx_event_interested_user ON event_interested(user_id);');
 
   safeAddColumn('users', 'is_disabled INTEGER DEFAULT 0');
+  safeAddColumn('users', "status TEXT DEFAULT 'active'");
   safeAddColumn('users', 'choir_voice TEXT'); // 'Soprano', 'Alto', 'Tenor', 'Bass', 'Musician', 'Director'
   safeAddColumn('songs', 'lyrics_pdf_url TEXT');
   safeAddColumn('songs', 'lyrics_pdf_filename TEXT');

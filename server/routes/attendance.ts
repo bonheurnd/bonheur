@@ -3,6 +3,16 @@ import { db, logActivity } from '../db.js';
 import { requireAdmin, requireAuth, AuthRequest, isUserAdmin } from '../auth.js';
 import { broadcastRealtimeEvent } from '../realtime.js';
 import { buildCsvPayload, sanitizeCsvField, getDateSuffix } from '../export.js';
+import {
+  readAttendanceJson,
+  writeAttendanceJson,
+  createSessionInJson,
+  toggleMemberStatusInJson,
+  saveBulkRecordsInJson,
+  getChoirMembersList,
+  ATTENDANCE_JSON_PATH,
+  AttendanceStatus as JsonStatus,
+} from '../attendanceStorage.js';
 
 export const attendanceRouter = Router();
 
@@ -17,22 +27,20 @@ export const ACTIVITY_TYPES = ['rehearsal', 'sunday_service', 'concert', 'meetin
 /**
  * Calculate attendance percentage:
  * (Present + Late) / Total Recorded * 100
- * Excused absences do not penalize the percentage if configured, or can be counted cleanly.
- * Formula: ((present + late) / (total_recorded - excused > 0 ? total_recorded - excused : total_recorded)) * 100
+ * Excused absences do not penalize the percentage if configured.
  */
 export function calculateAttendancePercentage(present: number, late: number, totalRecorded: number, excused = 0): number {
   if (totalRecorded <= 0) return 100;
-  // Net sessions where attendance was expected (excluding excused)
   const eligible = totalRecorded - excused;
-  if (eligible <= 0) return 100; // Excused for all
+  if (eligible <= 0) return 100;
   const attended = present + late;
   return Math.min(100, Math.max(0, Math.round((attended / eligible) * 100)));
 }
 
 // -------------------------------------------------------------
-// 1. GET ALL ATTENDANCE SESSIONS
+// HELPER: GET ALL SESSIONS
 // -------------------------------------------------------------
-attendanceRouter.get('/sessions', requireAuth, (req: AuthRequest, res: Response) => {
+function handleGetAllSessions(req: AuthRequest, res: Response) {
   try {
     const { startDate, endDate, activityType, search } = req.query;
     let query = `
@@ -114,14 +122,14 @@ attendanceRouter.get('/sessions', requireAuth, (req: AuthRequest, res: Response)
     console.error('Error fetching attendance sessions:', err);
     res.status(500).json({ error: 'Habaye ikibazo mu gushaka amalisiti y\'ubwitabire' });
   }
-});
+}
 
 // -------------------------------------------------------------
-// 2. GET SINGLE ATTENDANCE SESSION WITH MEMBERS
+// HELPER: GET SINGLE SESSION WITH MEMBER STATUS
 // -------------------------------------------------------------
-attendanceRouter.get('/sessions/:id', requireAuth, (req: AuthRequest, res: Response) => {
+function handleGetSessionDetails(req: AuthRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id || String(req.query.session_id || req.query.activity_id);
     const session = db.prepare(`
       SELECT s.*, e.title as event_title
       FROM attendance_sessions s
@@ -138,8 +146,9 @@ attendanceRouter.get('/sessions/:id', requireAuth, (req: AuthRequest, res: Respo
     // If member, only return session with their own record
     if (!isAdmin) {
       const myRecord = db.prepare(`
-        SELECT * FROM attendance_records
-        WHERE session_id = ? AND user_id = ?
+        SELECT r.*
+        FROM attendance_records r
+        WHERE r.session_id = ? AND r.user_id = ?
       `).get(id, req.user!.id) as any;
 
       return res.json({
@@ -149,7 +158,8 @@ attendanceRouter.get('/sessions/:id', requireAuth, (req: AuthRequest, res: Respo
     }
 
     // Admin view: include all choir members and their marked status
-    const choirMembers = db.prepare(`
+    const includeInactive = req.query.include_inactive === 'true' || req.query.status === 'all';
+    let membersQuery = `
       SELECT 
         u.id as user_id,
         u.name,
@@ -158,6 +168,8 @@ attendanceRouter.get('/sessions/:id', requireAuth, (req: AuthRequest, res: Respo
         u.choir_voice,
         u.choir_role,
         u.avatar_url,
+        u.status as membership_status,
+        u.is_disabled,
         r.id as record_id,
         r.status,
         r.notes,
@@ -166,8 +178,18 @@ attendanceRouter.get('/sessions/:id', requireAuth, (req: AuthRequest, res: Respo
       FROM users u
       LEFT JOIN attendance_records r ON u.id = r.user_id AND r.session_id = ?
       WHERE u.role IN ('choir_member', 'member', 'admin', 'super_admin', 'content_admin', 'moderator')
-        AND (u.is_disabled = 0 OR u.is_disabled IS NULL)
+    `;
+
+    if (!includeInactive) {
+      membersQuery += ` AND (u.status = 'active' OR u.status IS NULL) AND (u.is_disabled = 0 OR u.is_disabled IS NULL)`;
+    }
+
+    membersQuery += `
       ORDER BY 
+        CASE 
+          WHEN u.status = 'inactive' OR u.is_disabled = 1 THEN 2
+          ELSE 1
+        END,
         CASE 
           WHEN u.choir_voice = 'Director' THEN 1
           WHEN u.choir_voice = 'Soprano' THEN 2
@@ -178,7 +200,9 @@ attendanceRouter.get('/sessions/:id', requireAuth, (req: AuthRequest, res: Respo
           ELSE 7
         END,
         u.name ASC
-    `).all(id) as any[];
+    `;
+
+    const choirMembers = db.prepare(membersQuery).all(id) as any[];
 
     // Calculate quick counts
     const marked = choirMembers.filter(m => m.status);
@@ -205,12 +229,12 @@ attendanceRouter.get('/sessions/:id', requireAuth, (req: AuthRequest, res: Respo
     console.error('Error fetching session details:', err);
     res.status(500).json({ error: 'Habaye ikibazo mu gushaka amakuru y\'ubwitabire' });
   }
-});
+}
 
 // -------------------------------------------------------------
-// 3. CREATE ATTENDANCE SESSION (ADMIN ONLY)
+// HELPER: CREATE SESSION
 // -------------------------------------------------------------
-attendanceRouter.post('/sessions', requireAdmin, (req: AuthRequest, res: Response) => {
+function handleCreateSession(req: AuthRequest, res: Response) {
   try {
     const {
       title,
@@ -221,7 +245,7 @@ attendanceRouter.post('/sessions', requireAdmin, (req: AuthRequest, res: Respons
       location,
       event_id,
       notes,
-      records, // Optional array of { user_id, status, notes }
+      records,
     } = req.body;
 
     if (!title || !session_date) {
@@ -230,52 +254,23 @@ attendanceRouter.post('/sessions', requireAdmin, (req: AuthRequest, res: Respons
       });
     }
 
-    const sessionId = 'att_sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-    const finalActivityType = ACTIVITY_TYPES.includes(activity_type) ? activity_type : 'rehearsal';
+    // Create session in persistent JSON file and SQLite
+    const createdSession = createSessionInJson({
+      title,
+      session_date,
+      activity_type,
+      start_time,
+      end_time,
+      location,
+      event_id,
+      notes,
+      adminId: req.user!.id,
+    });
 
-    db.prepare(`
-      INSERT INTO attendance_sessions (
-        id, title, activity_type, session_date, start_time, end_time, location, event_id, notes, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      sessionId,
-      title.trim(),
-      finalActivityType,
-      session_date.trim(),
-      start_time || '15:00',
-      end_time || '18:00',
-      location || 'ADEPR Nyanza',
-      event_id || null,
-      notes ? notes.trim() : null,
-      req.user!.id
-    );
-
-    // If initial attendance records were provided, bulk insert them safely
     let insertedRecordsCount = 0;
     if (Array.isArray(records) && records.length > 0) {
-      const insertRecordStmt = db.prepare(`
-        INSERT INTO attendance_records (id, session_id, user_id, status, notes, marked_by)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id, user_id) DO UPDATE SET
-          status = excluded.status,
-          notes = excluded.notes,
-          marked_by = excluded.marked_by,
-          updated_at = CURRENT_TIMESTAMP
-      `);
-
-      for (const rec of records) {
-        if (!rec.user_id || !ATTENDANCE_STATUSES.includes(rec.status)) continue;
-        const recId = 'att_rec_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-        insertRecordStmt.run(
-          recId,
-          sessionId,
-          rec.user_id,
-          rec.status,
-          rec.notes || null,
-          req.user!.id
-        );
-        insertedRecordsCount++;
-      }
+      const bulkRes = saveBulkRecordsInJson(createdSession.id, records, req.user!.id);
+      insertedRecordsCount = bulkRes.saved_count;
     }
 
     logActivity(
@@ -284,33 +279,34 @@ attendanceRouter.post('/sessions', requireAdmin, (req: AuthRequest, res: Respons
       req.user!.role,
       'CREATE_ATTENDANCE_SESSION',
       'attendance_sessions',
-      sessionId,
+      createdSession.id,
       `Created attendance session "${title}" for ${session_date} (${insertedRecordsCount} members marked)`
     );
 
     broadcastRealtimeEvent('attendance_updated', {
-      sessionId,
+      sessionId: createdSession.id,
       action: 'created',
       date: session_date,
     });
 
     res.status(201).json({
       message: 'Ubwitabire bwashyizweho neza (Attendance session created)',
-      id: sessionId,
+      id: createdSession.id,
+      session: createdSession,
       records_marked: insertedRecordsCount,
     });
   } catch (err: any) {
     console.error('Error creating attendance session:', err);
     res.status(500).json({ error: 'Habaye ikibazo mu kubika ubwitabire: ' + err.message });
   }
-});
+}
 
 // -------------------------------------------------------------
-// 4. UPDATE ATTENDANCE SESSION DETAILS (ADMIN ONLY)
+// HELPER: UPDATE SESSION DETAILS
 // -------------------------------------------------------------
-attendanceRouter.put('/sessions/:id', requireAdmin, (req: AuthRequest, res: Response) => {
+function handleUpdateSession(req: AuthRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id;
     const { title, activity_type, session_date, start_time, end_time, location, event_id, notes } = req.body;
 
     const existing = db.prepare('SELECT id FROM attendance_sessions WHERE id = ? AND is_deleted = 0').get(id);
@@ -333,9 +329,9 @@ attendanceRouter.put('/sessions/:id', requireAdmin, (req: AuthRequest, res: Resp
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
-      title.trim(),
+      title ? title.trim() : 'Session',
       finalActivityType,
-      session_date.trim(),
+      session_date ? session_date.trim() : new Date().toISOString().slice(0, 10),
       start_time || '15:00',
       end_time || '18:00',
       location || 'ADEPR Nyanza',
@@ -343,6 +339,26 @@ attendanceRouter.put('/sessions/:id', requireAdmin, (req: AuthRequest, res: Resp
       notes ? notes.trim() : null,
       id
     );
+
+    // Update in JSON file
+    try {
+      const store = readAttendanceJson();
+      const sess = store.sessions.find(s => s.id === id);
+      if (sess) {
+        if (title) sess.title = title.trim();
+        if (activity_type) sess.activity_type = activity_type;
+        if (session_date) sess.session_date = session_date.trim();
+        if (start_time) sess.start_time = start_time;
+        if (end_time) sess.end_time = end_time;
+        if (location) sess.location = location;
+        if (event_id !== undefined) sess.event_id = event_id;
+        if (notes !== undefined) sess.notes = notes;
+        sess.updated_at = new Date().toISOString();
+        writeAttendanceJson(store);
+      }
+    } catch (e) {
+      console.warn('[Attendance] JSON session update warning:', e);
+    }
 
     logActivity(
       req.user!.id,
@@ -364,11 +380,103 @@ attendanceRouter.put('/sessions/:id', requireAdmin, (req: AuthRequest, res: Resp
     console.error('Error updating session:', err);
     res.status(500).json({ error: 'Habaye ikibazo mu kuvugurura ubwitabire' });
   }
+}
+
+// -------------------------------------------------------------
+// HELPER: SAVE SESSION RECORDS (BULK)
+// -------------------------------------------------------------
+function handleSaveSessionRecords(req: AuthRequest, res: Response) {
+  try {
+    const id = req.params.id || String(req.body.session_id || req.body.activity_id);
+    const session = db.prepare('SELECT id, title FROM attendance_sessions WHERE id = ? AND is_deleted = 0').get(id) as any;
+    if (!session) {
+      return res.status(404).json({ error: 'Ubwitabire ntibubonetse (Session not found)' });
+    }
+
+    const { records, user_id, status, notes } = req.body;
+    let recordsToSave: Array<{ user_id: string; status: AttendanceStatus; notes?: string }> = [];
+
+    if (Array.isArray(records)) {
+      recordsToSave = records
+        .filter(r => r && r.user_id && ATTENDANCE_STATUSES.includes(r.status))
+        .map(r => ({
+          user_id: r.user_id,
+          status: r.status,
+          notes: r.notes || '',
+        }));
+    } else if (user_id && ATTENDANCE_STATUSES.includes(status)) {
+      recordsToSave = [{ user_id, status, notes: notes || '' }];
+    } else {
+      return res.status(400).json({ error: 'Amakuru y\'ubwitabire si yo (Invalid records payload)' });
+    }
+
+    // Save atomically into ./data/attendance.json AND SQLite
+    const bulkRes = saveBulkRecordsInJson(id, recordsToSave as any, req.user!.id);
+
+    logActivity(
+      req.user!.id,
+      req.user!.name,
+      req.user!.role,
+      'MARK_ATTENDANCE',
+      'attendance_records',
+      id,
+      `Marked attendance for ${bulkRes.saved_count} members in session "${session.title}"`
+    );
+
+    broadcastRealtimeEvent('attendance_updated', {
+      sessionId: id,
+      action: 'records_updated',
+      count: bulkRes.saved_count,
+    });
+
+    res.json({
+      success: true,
+      message: `Ubwitabire bw'abaririmbyi ${bulkRes.saved_count} bwabitswe neza muri JSON na Database`,
+      saved_count: bulkRes.saved_count,
+    });
+  } catch (err: any) {
+    console.error('Error recording attendance:', err);
+    res.status(500).json({ error: 'Habaye ikibazo mu kubika ubwitabire: ' + err.message });
+  }
+}
+
+// -------------------------------------------------------------
+// 0. ROOT ENDPOINTS (/api/attendance)
+// -------------------------------------------------------------
+attendanceRouter.get('/', requireAuth, (req: AuthRequest, res: Response) => {
+  const { session_id, activity_id, member_id, user_id } = req.query;
+  if (session_id || activity_id) {
+    req.params.id = String(session_id || activity_id);
+    return handleGetSessionDetails(req, res);
+  }
+  if (member_id || user_id) {
+    return handleGetMemberAttendanceHistory(req, res);
+  }
+  return handleGetAllSessions(req, res);
+});
+
+attendanceRouter.post('/', requireAdmin, (req: AuthRequest, res: Response) => {
+  if (req.body.records && (req.body.session_id || req.body.activity_id)) {
+    req.params.id = String(req.body.session_id || req.body.activity_id);
+    return handleSaveSessionRecords(req, res);
+  }
+  return handleCreateSession(req, res);
+});
+
+attendanceRouter.put('/:id', requireAdmin, (req: AuthRequest, res: Response) => {
+  return handleUpdateSession(req, res);
 });
 
 // -------------------------------------------------------------
-// 5. DELETE ATTENDANCE SESSION (ADMIN ONLY)
+// 1. SESSIONS SUB-ROUTES
 // -------------------------------------------------------------
+attendanceRouter.get('/sessions', requireAuth, handleGetAllSessions);
+attendanceRouter.get('/sessions/:id', requireAuth, handleGetSessionDetails);
+attendanceRouter.post('/sessions', requireAdmin, handleCreateSession);
+attendanceRouter.put('/sessions/:id', requireAdmin, handleUpdateSession);
+attendanceRouter.post('/sessions/:id/records', requireAdmin, handleSaveSessionRecords);
+
+// Delete session
 attendanceRouter.delete('/sessions/:id', requireAdmin, (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -378,6 +486,18 @@ attendanceRouter.delete('/sessions/:id', requireAdmin, (req: AuthRequest, res: R
     }
 
     db.prepare('UPDATE attendance_sessions SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+
+    try {
+      const store = readAttendanceJson();
+      const sess = store.sessions.find(s => s.id === id);
+      if (sess) {
+        sess.is_deleted = true;
+        sess.updated_at = new Date().toISOString();
+        writeAttendanceJson(store);
+      }
+    } catch (e) {
+      console.warn('[Attendance] JSON session delete notice:', e);
+    }
 
     logActivity(
       req.user!.id,
@@ -402,74 +522,233 @@ attendanceRouter.delete('/sessions/:id', requireAdmin, (req: AuthRequest, res: R
 });
 
 // -------------------------------------------------------------
-// 6. RECORD / UPDATE MEMBER ATTENDANCE FOR A SESSION (ADMIN ONLY)
+// 2. LIST MEMBERS FOR ATTENDANCE
 // -------------------------------------------------------------
-attendanceRouter.post('/sessions/:id/records', requireAdmin, (req: AuthRequest, res: Response) => {
+attendanceRouter.get('/members', requireAdmin, (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    const session = db.prepare('SELECT id, title FROM attendance_sessions WHERE id = ? AND is_deleted = 0').get(id) as any;
-    if (!session) {
-      return res.status(404).json({ error: 'Ubwitabire ntibubonetse' });
+    const { sessionId, session_id, activity_id, status } = req.query;
+    const targetSessionId = sessionId || session_id || activity_id;
+
+    let query = `
+      SELECT 
+        u.id as user_id,
+        u.name,
+        u.email,
+        u.phone,
+        u.choir_voice,
+        u.choir_role,
+        u.avatar_url,
+        u.status as membership_status,
+        u.is_disabled
+      FROM users u
+      WHERE u.role IN ('choir_member', 'member', 'admin', 'super_admin', 'content_admin', 'moderator')
+    `;
+
+    if (status === 'active') {
+      query += ` AND (u.status = 'active' OR u.status IS NULL) AND (u.is_disabled = 0 OR u.is_disabled IS NULL)`;
+    } else if (status === 'inactive') {
+      query += ` AND (u.status = 'inactive' OR u.is_disabled = 1)`;
     }
 
-    const { records, user_id, status, notes } = req.body;
+    query += `
+      ORDER BY 
+        CASE 
+          WHEN u.status = 'inactive' OR u.is_disabled = 1 THEN 2
+          ELSE 1
+        END,
+        CASE 
+          WHEN u.choir_voice = 'Director' THEN 1
+          WHEN u.choir_voice = 'Soprano' THEN 2
+          WHEN u.choir_voice = 'Alto' THEN 3
+          WHEN u.choir_voice = 'Tenor' THEN 4
+          WHEN u.choir_voice = 'Bass' THEN 5
+          WHEN u.choir_voice = 'Musician' THEN 6
+          ELSE 7
+        END,
+        u.name ASC
+    `;
 
-    const upsertStmt = db.prepare(`
-      INSERT INTO attendance_records (id, session_id, user_id, status, notes, marked_by)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(session_id, user_id) DO UPDATE SET
-        status = excluded.status,
-        notes = excluded.notes,
-        marked_by = excluded.marked_by,
-        updated_at = CURRENT_TIMESTAMP
-    `);
+    const members = db.prepare(query).all() as any[];
 
-    let savedCount = 0;
+    if (targetSessionId) {
+      const records = db.prepare(`
+        SELECT user_id, status, notes
+        FROM attendance_records
+        WHERE session_id = ?
+      `).all(String(targetSessionId)) as any[];
 
-    if (Array.isArray(records)) {
-      for (const r of records) {
-        if (!r.user_id || !ATTENDANCE_STATUSES.includes(r.status)) continue;
-        const recordId = 'att_rec_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-        upsertStmt.run(recordId, id, r.user_id, r.status, r.notes || null, req.user!.id);
-        savedCount++;
-      }
-    } else if (user_id && ATTENDANCE_STATUSES.includes(status)) {
-      const recordId = 'att_rec_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-      upsertStmt.run(recordId, id, user_id, status, notes || null, req.user!.id);
-      savedCount = 1;
-    } else {
-      return res.status(400).json({ error: 'Amakuru y\'ubwitabire si yo (Invalid records payload)' });
+      const recordMap = new Map(records.map(r => [r.user_id, r]));
+
+      const membersWithStatus = members.map(m => {
+        const rec = recordMap.get(m.user_id);
+        const isInactive = m.membership_status === 'inactive' || m.is_disabled === 1;
+        return {
+          ...m,
+          status: rec ? rec.status : 'absent',
+          is_present: rec?.status === 'present',
+          notes: rec ? rec.notes : '',
+          membership_status: isInactive ? 'inactive' : 'active',
+        };
+      });
+
+      return res.json({
+        session_id: targetSessionId,
+        members: membersWithStatus,
+        count: membersWithStatus.length,
+      });
     }
-
-    logActivity(
-      req.user!.id,
-      req.user!.name,
-      req.user!.role,
-      'MARK_ATTENDANCE',
-      'attendance_records',
-      id,
-      `Marked attendance for ${savedCount} members in session "${session.title}"`
-    );
-
-    broadcastRealtimeEvent('attendance_updated', {
-      sessionId: id,
-      action: 'records_updated',
-      count: savedCount,
-    });
 
     res.json({
-      success: true,
-      message: `Ubwitabire bw'abaririmbyi ${savedCount} bwabitswe neza`,
-      saved_count: savedCount,
+      members: members.map(m => ({
+        ...m,
+        membership_status: (m.membership_status === 'inactive' || m.is_disabled === 1) ? 'inactive' : 'active',
+      })),
+      count: members.length,
     });
   } catch (err: any) {
-    console.error('Error recording attendance:', err);
-    res.status(500).json({ error: 'Habaye ikibazo mu kubika ubwitabire: ' + err.message });
+    console.error('Error fetching attendance members:', err);
+    res.status(500).json({ error: 'Habaye ikibazo mu gushaka abaririmbyi' });
   }
 });
 
 // -------------------------------------------------------------
-// 7. GET OVERALL ATTENDANCE SUMMARY & LEADERBOARD (ADMIN ONLY)
+// 3. TOGGLE ATTENDANCE STATUS (PRESENT / ABSENT / LATE)
+// -------------------------------------------------------------
+const handleToggleStatus = (req: AuthRequest, res: Response) => {
+  try {
+    const sessionId = req.body.session_id || req.body.activity_id || req.params.sessionId;
+    const userId = req.body.user_id || req.params.userId;
+    const { status, notes } = req.body;
+
+    if (!sessionId || !userId) {
+      return res.status(400).json({ error: 'session_id na user_id birakenewe (session_id and user_id required)' });
+    }
+
+    const { record, session } = toggleMemberStatusInJson({
+      sessionId,
+      userId,
+      targetStatus: status,
+      notes,
+      adminId: req.user!.id,
+    });
+
+    broadcastRealtimeEvent('attendance_updated', {
+      sessionId,
+      action: 'member_status_toggled',
+      userId,
+      status: record.status,
+    });
+
+    res.json({
+      success: true,
+      message: `Imimerere yahinduwe kuri: ${record.status}`,
+      record,
+      session_id: sessionId,
+      user_id: userId,
+      status: record.status,
+    });
+  } catch (err: any) {
+    console.error('Error toggling attendance status:', err);
+    res.status(500).json({ error: err.message || 'Habaye ikibazo mu guhindura imimerere y\'ubwitabire' });
+  }
+};
+
+attendanceRouter.post('/toggle-status', requireAdmin, handleToggleStatus);
+attendanceRouter.put('/toggle-status', requireAdmin, handleToggleStatus);
+attendanceRouter.patch('/sessions/:sessionId/members/:userId/status', requireAdmin, handleToggleStatus);
+
+// -------------------------------------------------------------
+// 4. GET RAW PERSISTENT JSON STORE (ADMIN ONLY)
+// -------------------------------------------------------------
+attendanceRouter.get('/json', requireAdmin, (req: AuthRequest, res: Response) => {
+  try {
+    const store = readAttendanceJson();
+    res.json({
+      file_path: ATTENDANCE_JSON_PATH,
+      total_sessions: store.sessions.length,
+      last_updated: store.last_updated,
+      store,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to read attendance.json' });
+  }
+});
+
+attendanceRouter.get('/data', requireAdmin, (req: AuthRequest, res: Response) => {
+  try {
+    const store = readAttendanceJson();
+    res.json(store);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to read attendance data' });
+  }
+});
+
+// -------------------------------------------------------------
+// 5. MEMBER ATTENDANCE HISTORY
+// -------------------------------------------------------------
+function handleGetMemberAttendanceHistory(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.params.id || String(req.query.member_id || req.query.user_id || req.user?.id);
+    const member = db.prepare('SELECT id, name, email, phone, choir_voice, choir_role, status, is_disabled FROM users WHERE id = ?').get(userId) as any;
+    if (!member) {
+      return res.status(404).json({ error: 'Umunyamuryango ntabwo yabonetse' });
+    }
+
+    const history = db.prepare(`
+      SELECT 
+        s.id as session_id,
+        s.title,
+        s.activity_type,
+        s.session_date,
+        s.start_time,
+        s.end_time,
+        s.location,
+        e.title as event_title,
+        r.status,
+        r.notes,
+        r.marked_by,
+        r.updated_at as marked_at
+      FROM attendance_records r
+      JOIN attendance_sessions s ON r.session_id = s.id
+      LEFT JOIN events e ON s.event_id = e.id
+      WHERE r.user_id = ? AND s.is_deleted = 0
+      ORDER BY s.session_date DESC, s.created_at DESC
+    `).all(userId) as any[];
+
+    const totalSessions = history.length;
+    const present = history.filter(h => h.status === 'present').length;
+    const late = history.filter(h => h.status === 'late').length;
+    const excused = history.filter(h => h.status === 'excused').length;
+    const absent = history.filter(h => h.status === 'absent').length;
+    const attended = present + late;
+    const eligible = totalSessions - excused;
+    const percentage = eligible > 0 ? Math.round((attended / eligible) * 100) : 100;
+
+    res.json({
+      member,
+      summary: {
+        total_sessions: totalSessions,
+        present,
+        late,
+        excused,
+        absent,
+        attendance_percentage: percentage,
+      },
+      history,
+    });
+  } catch (err: any) {
+    console.error('Error fetching member history:', err);
+    res.status(500).json({ error: 'Habaye ikibazo mu gushaka amateka y\'ubwitabire' });
+  }
+}
+
+attendanceRouter.get('/my-history', requireAuth, (req: AuthRequest, res: Response) => {
+  return handleGetMemberAttendanceHistory(req, res);
+});
+attendanceRouter.get('/history/:id', requireAuth, handleGetMemberAttendanceHistory);
+
+// -------------------------------------------------------------
+// 6. SUMMARY & LEADERBOARD (ADMIN ONLY)
 // -------------------------------------------------------------
 attendanceRouter.get('/summary', requireAdmin, (req: AuthRequest, res: Response) => {
   try {
@@ -501,6 +780,8 @@ attendanceRouter.get('/summary', requireAdmin, (req: AuthRequest, res: Response)
         u.choir_voice,
         u.choir_role,
         u.avatar_url,
+        u.status as membership_status,
+        u.is_disabled,
         COUNT(r.id) as sessions_recorded,
         SUM(CASE WHEN r.status = 'present' THEN 1 ELSE 0 END) as present_count,
         SUM(CASE WHEN r.status = 'late' THEN 1 ELSE 0 END) as late_count,
@@ -510,7 +791,6 @@ attendanceRouter.get('/summary', requireAdmin, (req: AuthRequest, res: Response)
       LEFT JOIN attendance_records r ON u.id = r.user_id
       LEFT JOIN attendance_sessions s ON r.session_id = s.id AND ${sessionFilter}
       WHERE u.role IN ('choir_member', 'member', 'admin', 'super_admin', 'content_admin', 'moderator')
-        AND (u.is_disabled = 0 OR u.is_disabled IS NULL)
     `;
 
     const memberParams = [...params];
@@ -535,8 +815,10 @@ attendanceRouter.get('/summary', requireAdmin, (req: AuthRequest, res: Response)
       const late = m.late_count || 0;
       const exc = m.excused_count || 0;
       const abs = m.absent_count || 0;
+      const isInactive = m.membership_status === 'inactive' || m.is_disabled === 1;
       return {
         ...m,
+        status: isInactive ? 'inactive' : 'active',
         sessions_recorded: rec,
         present_count: pres,
         late_count: late,
@@ -560,42 +842,39 @@ attendanceRouter.get('/summary', requireAdmin, (req: AuthRequest, res: Response)
       LEFT JOIN attendance_records r ON u.id = r.user_id
       LEFT JOIN attendance_sessions s ON r.session_id = s.id AND ${sessionFilter}
       WHERE u.role IN ('choir_member', 'member', 'admin', 'super_admin', 'content_admin', 'moderator')
+        AND (u.status = 'active' OR u.status IS NULL) AND (u.is_disabled = 0 OR u.is_disabled IS NULL)
       GROUP BY COALESCE(u.choir_voice, 'Other')
       ORDER BY member_count DESC
     `).all(...params) as any[];
 
-    const voiceStats = voiceBreakdown.map(v => ({
-      ...v,
-      rate: calculateAttendancePercentage(v.present_count, v.late_count, v.total_recorded, v.excused_count),
-    }));
+    const totalActiveMembers = (db.prepare(`
+      SELECT COUNT(*) as count FROM users
+      WHERE role IN ('choir_member', 'member', 'admin', 'super_admin', 'content_admin', 'moderator')
+        AND (status = 'active' OR status IS NULL) AND (is_disabled = 0 OR is_disabled IS NULL)
+    `).get() as any)?.count || 0;
 
-    // Overall choir attendance rate
-    const globalTotals = memberSummaries.reduce(
-      (acc, m) => {
-        acc.present += m.present_count;
-        acc.late += m.late_count;
-        acc.excused += m.excused_count;
-        acc.absent += m.absent_count;
-        acc.recorded += m.sessions_recorded;
-        return acc;
-      },
-      { present: 0, late: 0, excused: 0, absent: 0, recorded: 0 }
-    );
-
-    const overallRate = calculateAttendancePercentage(
-      globalTotals.present,
-      globalTotals.late,
-      globalTotals.recorded,
-      globalTotals.excused
-    );
+    const overallPresent = memberSummaries.reduce((acc, m) => acc + m.present_count, 0);
+    const overallLate = memberSummaries.reduce((acc, m) => acc + m.late_count, 0);
+    const overallExcused = memberSummaries.reduce((acc, m) => acc + m.excused_count, 0);
+    const overallAbsent = memberSummaries.reduce((acc, m) => acc + m.absent_count, 0);
+    const overallRecorded = memberSummaries.reduce((acc, m) => acc + m.sessions_recorded, 0);
 
     res.json({
       total_sessions: totalSessions,
-      total_members: memberSummaries.length,
-      overall_rate: overallRate,
-      totals: globalTotals,
+      total_members: totalActiveMembers,
+      overall_rate: calculateAttendancePercentage(overallPresent, overallLate, overallRecorded, overallExcused),
+      totals: {
+        present: overallPresent,
+        late: overallLate,
+        excused: overallExcused,
+        absent: overallAbsent,
+        recorded: overallRecorded,
+      },
       members: memberSummaries,
-      voice_breakdown: voiceStats,
+      voice_breakdown: voiceBreakdown.map(v => ({
+        ...v,
+        rate: calculateAttendancePercentage(v.present_count, v.late_count, v.total_recorded, v.excused_count),
+      })),
     });
   } catch (err: any) {
     console.error('Error calculating attendance summary:', err);
@@ -604,140 +883,121 @@ attendanceRouter.get('/summary', requireAdmin, (req: AuthRequest, res: Response)
 });
 
 // -------------------------------------------------------------
-// 8. GET AUTHENTICATED MEMBER'S OWN ATTENDANCE HISTORY
+// 7. EXPORT ATTENDANCE TO CSV
 // -------------------------------------------------------------
-attendanceRouter.get('/my-history', requireAuth, (req: AuthRequest, res: Response) => {
+attendanceRouter.get('/export/csv', (req, res: Response) => {
   try {
-    const userId = req.user!.id;
+    const { sessionId, startDate, endDate } = req.query;
 
-    const history = db.prepare(`
-      SELECT 
-        s.id as session_id,
-        s.title,
-        s.activity_type,
-        s.session_date,
-        s.start_time,
-        s.end_time,
-        s.location,
-        e.title as event_title,
-        r.status,
-        r.notes,
-        r.created_at as marked_at
-      FROM attendance_records r
-      JOIN attendance_sessions s ON r.session_id = s.id
-      LEFT JOIN events e ON s.event_id = e.id
-      WHERE r.user_id = ? AND s.is_deleted = 0
-      ORDER BY s.session_date DESC, s.created_at DESC
-    `).all(userId) as any[];
-
-    const present = history.filter(h => h.status === 'present').length;
-    const late = history.filter(h => h.status === 'late').length;
-    const excused = history.filter(h => h.status === 'excused').length;
-    const absent = history.filter(h => h.status === 'absent').length;
-    const totalRecorded = history.length;
-
-    const percentage = calculateAttendancePercentage(present, late, totalRecorded, excused);
-
-    res.json({
-      summary: {
-        total_recorded: totalRecorded,
-        present,
-        late,
-        excused,
-        absent,
-        percentage,
-      },
-      history,
-    });
-  } catch (err: any) {
-    console.error('Error fetching member attendance history:', err);
-    res.status(500).json({ error: 'Habaye ikibazo mu gushaka amateka yawe y\'ubwitabire' });
-  }
-});
-
-// -------------------------------------------------------------
-// 9. EXPORT ATTENDANCE TO CSV (ADMIN ONLY)
-// -------------------------------------------------------------
-attendanceRouter.get('/export/csv', requireAdmin, (req: AuthRequest, res: Response) => {
-  try {
-    const { startDate, endDate, sessionId } = req.query;
-
-    let query = `
-      SELECT 
-        s.session_date,
-        s.title as session_title,
-        s.activity_type,
-        s.location,
-        u.name as member_name,
-        u.email as member_email,
-        u.phone as member_phone,
-        COALESCE(u.choir_voice, 'Unassigned') as choir_voice,
-        COALESCE(u.choir_role, 'Member') as choir_role,
-        r.status,
-        r.notes,
-        r.created_at as marked_at
-      FROM attendance_records r
-      JOIN attendance_sessions s ON r.session_id = s.id
-      JOIN users u ON r.user_id = u.id
-      WHERE s.is_deleted = 0
-    `;
-    const params: any[] = [];
+    let headers: string[] = [];
+    let rows: string[][] = [];
+    let filename = `la-lumiere-attendance-${getDateSuffix()}.csv`;
 
     if (sessionId) {
-      query += ' AND s.id = ?';
-      params.push(String(sessionId));
+      const session = db.prepare(`
+        SELECT s.*, e.title as event_title
+        FROM attendance_sessions s
+        LEFT JOIN events e ON s.event_id = e.id
+        WHERE s.id = ?
+      `).get(String(sessionId)) as any;
+
+      if (!session) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+
+      filename = `la-lumiere-attendance-${session.session_date}-${session.title.replace(/[^a-zA-Z0-9]/g, '_')}.csv`;
+
+      headers = ['Member Name', 'Choir Voice', 'Choir Role', 'Phone', 'Attendance Status', 'Notes', 'Session Date', 'Activity Type', 'Location', 'Marked By'];
+
+      const records = db.prepare(`
+        SELECT 
+          u.name,
+          COALESCE(u.choir_voice, 'Choir Member') as choir_voice,
+          COALESCE(u.choir_role, 'Member') as choir_role,
+          u.phone,
+          COALESCE(r.status, 'unmarked') as status,
+          COALESCE(r.notes, '') as notes,
+          s.session_date,
+          s.activity_type,
+          s.location,
+          COALESCE(admin.name, 'Admin') as marked_by_name
+        FROM users u
+        LEFT JOIN attendance_records r ON u.id = r.user_id AND r.session_id = ?
+        LEFT JOIN attendance_sessions s ON s.id = ?
+        LEFT JOIN users admin ON r.marked_by = admin.id
+        WHERE u.role IN ('choir_member', 'member', 'admin', 'super_admin', 'content_admin', 'moderator')
+        ORDER BY u.name ASC
+      `).all(String(sessionId), String(sessionId)) as any[];
+
+      rows = records.map(r => [
+        sanitizeCsvField(r.name),
+        sanitizeCsvField(r.choir_voice),
+        sanitizeCsvField(r.choir_role),
+        sanitizeCsvField(r.phone, true),
+        sanitizeCsvField(r.status.toUpperCase()),
+        sanitizeCsvField(r.notes),
+        sanitizeCsvField(r.session_date),
+        sanitizeCsvField(r.activity_type),
+        sanitizeCsvField(r.location),
+        sanitizeCsvField(r.marked_by_name),
+      ]);
+    } else {
+      headers = ['Session Date', 'Session Title', 'Activity Type', 'Location', 'Total Present', 'Total Late', 'Total Excused', 'Total Absent', 'Total Marked', 'Attendance Rate (%)'];
+
+      let query = `
+        SELECT 
+          s.session_date,
+          s.title,
+          s.activity_type,
+          s.location,
+          SUM(CASE WHEN r.status = 'present' THEN 1 ELSE 0 END) as present_count,
+          SUM(CASE WHEN r.status = 'late' THEN 1 ELSE 0 END) as late_count,
+          SUM(CASE WHEN r.status = 'excused' THEN 1 ELSE 0 END) as excused_count,
+          SUM(CASE WHEN r.status = 'absent' THEN 1 ELSE 0 END) as absent_count,
+          COUNT(r.id) as total_marked
+        FROM attendance_sessions s
+        LEFT JOIN attendance_records r ON s.id = r.session_id
+        WHERE s.is_deleted = 0
+      `;
+      const params: any[] = [];
+      if (startDate) {
+        query += ' AND s.session_date >= ?';
+        params.push(String(startDate));
+      }
+      if (endDate) {
+        query += ' AND s.session_date <= ?';
+        params.push(String(endDate));
+      }
+      query += `
+        GROUP BY s.id
+        ORDER BY s.session_date DESC
+      `;
+
+      const sessions = db.prepare(query).all(...params) as any[];
+
+      rows = sessions.map(s => {
+        const rate = calculateAttendancePercentage(s.present_count, s.late_count, s.total_marked, s.excused_count);
+        return [
+          sanitizeCsvField(s.session_date),
+          sanitizeCsvField(s.title),
+          sanitizeCsvField(s.activity_type),
+          sanitizeCsvField(s.location),
+          String(s.present_count || 0),
+          String(s.late_count || 0),
+          String(s.excused_count || 0),
+          String(s.absent_count || 0),
+          String(s.total_marked || 0),
+          `${rate}%`,
+        ];
+      });
     }
-    if (startDate) {
-      query += ' AND s.session_date >= ?';
-      params.push(String(startDate));
-    }
-    if (endDate) {
-      query += ' AND s.session_date <= ?';
-      params.push(String(endDate));
-    }
 
-    query += ' ORDER BY s.session_date DESC, u.name ASC';
-
-    const records = db.prepare(query).all(...params) as any[];
-
-    const headers = [
-      'Itariki / Date',
-      'Igikorwa / Session',
-      'Ubwoko / Activity Type',
-      'Ahantu / Location',
-      'Amazina y\'Umuririmbyi / Member Name',
-      'Imeli / Email',
-      'Telefoni / Phone',
-      'Ijwi / Voice Section',
-      'Inshingano / Role',
-      'Ubwitabire / Status',
-      'Ibisobanuro / Notes',
-      'Igihe Byandikiwe / Marked At',
-    ];
-
-    const rows = records.map(r => [
-      sanitizeCsvField(r.session_date),
-      sanitizeCsvField(r.session_title),
-      sanitizeCsvField(r.activity_type),
-      sanitizeCsvField(r.location),
-      sanitizeCsvField(r.member_name),
-      sanitizeCsvField(r.member_email),
-      sanitizeCsvField(r.member_phone, true),
-      sanitizeCsvField(r.choir_voice),
-      sanitizeCsvField(r.choir_role),
-      sanitizeCsvField(r.status.toUpperCase()),
-      sanitizeCsvField(r.notes || ''),
-      sanitizeCsvField(r.marked_at || ''),
-    ]);
-
-    const csvContent = buildCsvPayload(headers, rows);
-    const filename = `la_lumiere_attendance_${getDateSuffix()}.csv`;
-
+    const payload = buildCsvPayload(headers, rows);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(csvContent);
+    res.send(payload);
   } catch (err: any) {
-    console.error('Error exporting attendance CSV:', err);
-    res.status(500).json({ error: 'Habaye ikibazo mu gusohora raporo ya CSV' });
+    console.error('Error generating attendance CSV export:', err);
+    res.status(500).json({ error: 'Failed to export attendance CSV' });
   }
 });

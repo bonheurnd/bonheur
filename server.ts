@@ -73,6 +73,7 @@ export { broadcastRealtimeEvent };
 import { attendanceRouter } from './server/routes/attendance.js';
 import { announcementsRouter } from './server/routes/announcements.js';
 import { remindersRouter, startReminderScheduler } from './server/routes/reminders.js';
+import { membersRouter } from './server/routes/members.js';
 // @ts-ignore
 import mammoth from 'mammoth';
 
@@ -230,82 +231,9 @@ app.get('/api/health', (req, res) => {
 });
 
 // -------------------------------------------------------------
-// SECURE CHOIR MEMBER DIRECTORY API
+// SECURE CHOIR MEMBER DIRECTORY & MANAGEMENT API
 // -------------------------------------------------------------
-app.get('/api/members', requireAuth, (req: AuthRequest, res) => {
-  try {
-    const { voice, search } = req.query;
-    const currentUserId = req.user!.id;
-    const isAdminUser = isUserAdmin(req.user?.role);
-
-    let query = `
-      SELECT id, name, email, phone, role, avatar_url, choir_voice, choir_role, bio,
-             share_directory, share_phone, share_email, share_whatsapp, created_at
-      FROM users
-      WHERE (is_disabled = 0 OR is_disabled IS NULL)
-    `;
-    const params: any[] = [];
-
-    if (!isAdminUser) {
-      query += ` AND (share_directory = 1 OR id = ?)`;
-      params.push(currentUserId);
-    }
-
-    if (voice && typeof voice === 'string' && voice !== 'all') {
-      query += ` AND LOWER(choir_voice) = LOWER(?)`;
-      params.push(voice);
-    }
-
-    if (search && typeof search === 'string' && search.trim()) {
-      const term = `%${search.trim()}%`;
-      query += ` AND (name LIKE ? OR choir_voice LIKE ? OR choir_role LIKE ? OR bio LIKE ?)`;
-      params.push(term, term, term, term);
-    }
-
-    query += ` ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, name ASC`;
-    params.push(currentUserId);
-
-    const rawMembers = db.prepare(query).all(...params) as any[];
-
-    const members = rawMembers.map(m => {
-      const isSelf = m.id === currentUserId;
-      const canViewFull = isSelf || isAdminUser;
-
-      return {
-        id: m.id,
-        name: m.name,
-        role: m.role,
-        avatar_url: m.avatar_url || '',
-        choir_voice: m.choir_voice || 'Choir Member',
-        choir_role: m.choir_role || (m.role === 'super_admin' || m.role === 'admin' ? 'Choir Leadership' : 'Member'),
-        bio: m.bio || '',
-        created_at: m.created_at,
-        share_directory: Boolean(m.share_directory ?? 1),
-        share_phone: Boolean(m.share_phone ?? 1),
-        share_email: Boolean(m.share_email ?? 1),
-        share_whatsapp: Boolean(m.share_whatsapp ?? 1),
-        phone: (canViewFull || m.share_phone) ? (m.phone || '') : '',
-        email: (canViewFull || m.share_email) ? m.email : '',
-        whatsapp: (canViewFull || m.share_whatsapp) ? (m.phone || '') : '',
-        has_phone: Boolean(m.phone && (canViewFull || m.share_phone)),
-        has_email: Boolean(m.email && (canViewFull || m.share_email)),
-        has_whatsapp: Boolean(m.phone && (canViewFull || m.share_whatsapp)),
-        is_self: isSelf
-      };
-    });
-
-    res.json({
-      members,
-      total: members.length,
-      current_user: {
-        id: currentUserId,
-        is_admin: isAdminUser
-      }
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to fetch member directory' });
-  }
-});
+app.use('/api/members', membersRouter);
 
 app.put('/api/members/privacy', requireAuth, (req: AuthRequest, res) => {
   try {
@@ -2312,6 +2240,7 @@ app.use('/api/attendance', attendanceRouter);
 app.use('/api/announcements', announcementsRouter);
 app.use('/api/admin/announcements', announcementsRouter);
 app.use('/api/reminders', remindersRouter);
+app.use('/api/admin/members', membersRouter);
 
 app.get('/api/notifications', requireAuth, (req: AuthRequest, res) => {
   try {

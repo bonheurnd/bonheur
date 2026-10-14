@@ -19,10 +19,16 @@ import {
   Trash2,
   CheckSquare,
   Square,
+  UserPlus,
+  Upload,
+  Calendar,
 } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { AdminMemberStats } from './AdminMemberStats';
 import { AdminMemberActivityLog } from './AdminMemberActivityLog';
+import { AdminMemberModal } from './AdminMemberModal';
+import { AdminMemberImportModal } from './AdminMemberImportModal';
+import { MemberAttendanceHistoryModal } from './MemberAttendanceHistoryModal';
 
 interface AdminUsersTabProps {
   users: UserProfile[];
@@ -62,6 +68,21 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   // Toggle status state
   const [toggleStatusUser, setToggleStatusUser] = useState<UserProfile | null>(null);
   const [isTogglingStatus, setIsTogglingStatus] = useState(false);
+
+  // Member management modals
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [editingMemberData, setEditingMemberData] = useState<{
+    id: string;
+    name: string;
+    phone?: string;
+    email?: string;
+    choir_voice?: string;
+    choir_role?: string;
+    status?: 'active' | 'inactive';
+    bio?: string;
+  } | null>(null);
+  const [viewAttendanceMemberId, setViewAttendanceMemberId] = useState<string | null>(null);
 
   // Sub-navigation view inside Member Management
   const [subView, setSubView] = useState<'members' | 'stats' | 'activity'>('members');
@@ -291,6 +312,26 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            {/* Add Member Button */}
+            <button
+              type="button"
+              onClick={() => setShowAddMemberModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Ongeramo Umunyamuryango</span>
+            </button>
+
+            {/* Import CSV Button */}
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Injiza CSV (Import)</span>
+            </button>
+
             <button
               onClick={handleDownloadCsv}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-800 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
@@ -545,13 +586,42 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
 
                 {/* Actions */}
                 <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                  {/* Edit Member Details */}
+                  <button
+                    onClick={() => {
+                      setEditingMemberData({
+                        id: u.id,
+                        name: u.full_name || '',
+                        phone: u.phone,
+                        email: u.email,
+                        choir_voice: u.choir_voice,
+                        choir_role: (u as any).choir_role || 'Member',
+                        status: u.is_disabled === 1 ? 'inactive' : 'active',
+                        bio: (u as any).bio,
+                      });
+                    }}
+                    className="p-1.5 text-slate-500 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                    title="Hindura Amakuru y'Umunyamuryango (Edit Member)"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+
+                  {/* Attendance History */}
+                  <button
+                    onClick={() => setViewAttendanceMemberId(u.id)}
+                    className="p-1.5 text-slate-500 hover:text-indigo-900 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                    title="Reba Ubwitabire bwa buri munsi (Attendance History)"
+                  >
+                    <Calendar className="w-4 h-4 text-indigo-700" />
+                  </button>
+
                   {/* Change Role */}
                   <button
                     onClick={() => {
                       setEditingUser(u);
                       setSelectedRole(u.role);
                     }}
-                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold inline-flex items-center gap-1"
+                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
                     title="Hindura Inshingano"
                   >
                     <Shield className="w-3.5 h-3.5 text-blue-900" />
@@ -783,6 +853,51 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ADD MEMBER MODAL */}
+      {showAddMemberModal && (
+        <AdminMemberModal
+          onClose={() => setShowAddMemberModal(false)}
+          onSuccess={(msg) => {
+            setSuccessMsg(msg);
+            setTimeout(() => setSuccessMsg(''), 4000);
+            onRefresh();
+          }}
+        />
+      )}
+
+      {/* EDIT MEMBER MODAL */}
+      {editingMemberData && (
+        <AdminMemberModal
+          editingMember={editingMemberData}
+          onClose={() => setEditingMemberData(null)}
+          onSuccess={(msg) => {
+            setSuccessMsg(msg);
+            setTimeout(() => setSuccessMsg(''), 4000);
+            onRefresh();
+          }}
+        />
+      )}
+
+      {/* CSV IMPORT MODAL */}
+      {showImportModal && (
+        <AdminMemberImportModal
+          onClose={() => setShowImportModal(false)}
+          onSuccess={(msg) => {
+            setSuccessMsg(msg);
+            setTimeout(() => setSuccessMsg(''), 4000);
+            onRefresh();
+          }}
+        />
+      )}
+
+      {/* MEMBER ATTENDANCE HISTORY MODAL */}
+      {viewAttendanceMemberId && (
+        <MemberAttendanceHistoryModal
+          memberId={viewAttendanceMemberId}
+          onClose={() => setViewAttendanceMemberId(null)}
+        />
       )}
     </div>
   );

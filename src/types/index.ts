@@ -15,6 +15,8 @@ export interface User {
   share_email?: boolean | number;
   share_whatsapp?: boolean | number;
   is_disabled?: number | boolean;
+  status?: 'active' | 'inactive';
+  date_added?: string;
   comments_count?: number;
   donations_count?: number;
   created_at?: string;

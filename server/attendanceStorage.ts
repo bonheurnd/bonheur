@@ -343,3 +343,75 @@ export function toggleMemberStatusInJson(params: {
 
   return { record: updatedRecord, session };
 }
+
+/**
+ * Saves a batch of attendance records for a session into attendance.json and syncs to SQLite
+ */
+export function saveBulkRecordsInJson(
+  sessionId: string,
+  records: Array<{ user_id: string; status: AttendanceStatus; notes?: string }>,
+  adminId: string
+): { saved_count: number; session: JsonAttendanceSession } {
+  const store = readAttendanceJson();
+  const session = store.sessions.find(s => s.id === sessionId && !s.is_deleted);
+  if (!session) {
+    throw new Error(`Attendance session "${sessionId}" not found`);
+  }
+
+  const now = new Date().toISOString();
+  let savedCount = 0;
+
+  const insertRecordStmt = db.prepare(`
+    INSERT INTO attendance_records (id, session_id, user_id, status, notes, marked_by)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id, user_id) DO UPDATE SET
+      status = excluded.status,
+      notes = excluded.notes,
+      marked_by = excluded.marked_by,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+
+  for (const r of records) {
+    if (!r.user_id || !VALID_STATUSES.includes(r.status)) continue;
+
+    const existingRec = session.records[r.user_id];
+    const recId = existingRec ? existingRec.id : 'att_rec_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const member = db.prepare('SELECT name, choir_voice, choir_role FROM users WHERE id = ?').get(r.user_id) as any;
+
+    const record: JsonAttendanceRecord = {
+      id: recId,
+      session_id: sessionId,
+      user_id: r.user_id,
+      name: member?.name || existingRec?.name || 'Member',
+      choir_voice: member?.choir_voice || existingRec?.choir_voice || 'Choir Member',
+      choir_role: member?.choir_role || existingRec?.choir_role || 'Member',
+      status: r.status,
+      notes: r.notes || '',
+      marked_by: adminId,
+      created_at: existingRec?.created_at || now,
+      updated_at: now,
+    };
+
+    session.records[r.user_id] = record;
+    savedCount++;
+
+    try {
+      insertRecordStmt.run(
+        record.id,
+        record.session_id,
+        record.user_id,
+        record.status,
+        record.notes || null,
+        record.marked_by
+      );
+    } catch (e) {
+      console.warn('[AttendanceStorage] SQLite bulk record sync notice:', e);
+    }
+  }
+
+  session.updated_at = now;
+  writeAttendanceJson(store);
+
+  return { saved_count: savedCount, session };
+}
+
