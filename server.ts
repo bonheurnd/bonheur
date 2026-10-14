@@ -485,7 +485,7 @@ app.post('/api/auth/register', (req, res) => {
     db.prepare(`
       INSERT INTO users (id, name, email, password_hash, phone, role)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(userId, name.trim(), email.trim().toLowerCase(), hash, phone || '', userRole);
+    `).run(userId, name.trim(), email.trim().toLowerCase(), hash, phone?.trim() || null, userRole);
 
     const token = generateToken({ id: userId, email: email.trim().toLowerCase(), role: userRole, name: name.trim() });
 
@@ -810,7 +810,7 @@ app.post('/api/admin/register', (req, res) => {
     db.prepare(`
       INSERT INTO users (id, name, email, password_hash, phone, role, is_disabled)
       VALUES (?, ?, ?, ?, ?, ?, 0)
-    `).run(newAdminId, name.trim(), cleanEmail, passwordBcryptHash, phone?.trim() || '', assignedRole);
+    `).run(newAdminId, name.trim(), cleanEmail, passwordBcryptHash, phone?.trim() || null, assignedRole);
 
     const token = generateToken({
       id: newAdminId,
@@ -5470,7 +5470,7 @@ app.post('/api/admin/users', requireAdmin, (req: AuthRequest, res) => {
     db.prepare(`
       INSERT INTO users (id, name, email, password_hash, phone, role, is_disabled)
       VALUES (?, ?, ?, ?, ?, ?, 0)
-    `).run(newUserId, name.trim(), cleanEmail, passwordHash, phone?.trim() || '', selectedRole);
+    `).run(newUserId, name.trim(), cleanEmail, passwordHash, phone?.trim() || null, selectedRole);
 
     logActivity(
       req.user!.id,

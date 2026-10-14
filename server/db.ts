@@ -597,6 +597,8 @@ export function initDatabase() {
 
   try {
     db.exec("UPDATE announcements SET updated_at = created_at WHERE updated_at IS NULL");
+    db.exec("UPDATE users SET phone = NULL WHERE phone IS NOT NULL AND TRIM(phone) = ''");
+    db.exec("UPDATE users SET bio = NULL WHERE bio IS NOT NULL AND TRIM(bio) = ''");
   } catch (e) {}
 
   // Direct Rwanda Payment Gateway & Donation Settings Migrations
