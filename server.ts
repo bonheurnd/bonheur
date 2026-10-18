@@ -4,6 +4,7 @@ if (typeof (globalThis as any).__dirname !== 'undefined' && (globalThis as any).
 }
 
 import express from 'express';
+import helmet from 'helmet';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
@@ -82,6 +83,98 @@ initDatabase();
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Disable X-Powered-By to prevent technology information disclosure
+app.disable('x-powered-by');
+
+// Register Helmet security middleware early in the Express pipeline
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        objectSrc: ["'none'"],
+        scriptSrc: isProduction
+          ? ["'self'"]
+          : ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        scriptSrcAttr: ["'none'"],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'", // Required for Tailwind CSS dynamic classes, motion inline styles, and typography
+          'https://fonts.googleapis.com',
+        ],
+        fontSrc: [
+          "'self'",
+          'https://fonts.gstatic.com',
+          'data:',
+        ],
+        imgSrc: [
+          "'self'",
+          'data:',
+          'blob:',
+          'https://images.unsplash.com',
+          'https:', // Allows remote event banners, song artwork, and choir media
+        ],
+        mediaSrc: [
+          "'self'",
+          'data:',
+          'blob:',
+          'https:', // Allows choir audio tracks and external previews
+        ],
+        connectSrc: [
+          "'self'",
+          'data:',
+          'blob:',
+          'https://fonts.googleapis.com',
+          'https://fonts.gstatic.com',
+          ...(isProduction ? [] : ['ws:', 'wss:']), // Vite HMR WebSockets in development
+        ],
+        workerSrc: ["'self'", 'blob:'],
+        childSrc: ["'self'", 'blob:'],
+        manifestSrc: ["'self'"],
+        frameAncestors: [
+          "'self'",
+          'https://*.google.com',
+          'https://*.run.app',
+          'https://*.googleusercontent.com',
+        ],
+        upgradeInsecureRequests: isProduction ? [] : null,
+      },
+    },
+    // Cross-Origin Resource Policy: Allow cross-origin for static assets, audio, and manifests
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    // Cross-Origin Opener Policy: Protect against cross-origin attacks while allowing payment/auth popups
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    // Cross-Origin Embedder Policy: Disabled to allow loading cross-origin images, fonts, and audio without requiring CORP headers on external servers
+    crossOriginEmbedderPolicy: false,
+    // Disable X-Frame-Options in favor of CSP frame-ancestors so the app can be previewed inside Google AI Studio's iframe
+    xFrameOptions: false,
+    // HTTP Strict Transport Security: Enabled in production HTTPS, disabled in local development HTTP
+    hsts: isProduction
+      ? {
+          maxAge: 31536000,
+          includeSubDomains: true,
+          preload: true,
+        }
+      : false,
+    // Referrer Policy: Standard strict-origin-when-cross-origin
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    // X-Content-Type-Options: nosniff
+    noSniff: true,
+    // Disable DNS prefetching
+    dnsPrefetchControl: { allow: false },
+    // Origin Agent Cluster
+    originAgentCluster: true,
+    // Permitted Cross Domain Policies
+    permittedCrossDomainPolicies: { permittedPolicies: 'none' },
+    // Set X-XSS-Protection
+    xssFilter: true,
+  })
+);
 
 // Set global security & CORS headers exposing Content-Type for all API endpoints
 app.use((req, res, next) => {
@@ -123,6 +216,19 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
+});
+
+// Service worker and manifest routes with optimal caching and PWA headers
+app.get(['/sw.js', '/workbox-*.js'], (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Service-Worker-Allowed', '/');
+  next();
+});
+
+app.get(['/manifest.json', '/manifest.webmanifest'], (req, res, next) => {
+  res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  next();
 });
 
 // Serve uploaded files statically from persistent directory, with fallback for existing public/uploads
@@ -6253,11 +6359,25 @@ async function startServer() {
     });
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(
+      express.static(distPath, {
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('sw.js') || filePath.includes('workbox-')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Service-Worker-Allowed', '/');
+          } else if (filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-cache');
+          } else if (filePath.includes('/assets/')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      })
+    );
     app.get('*', (req, res) => {
       if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/uploads')) {
         return res.status(404).json({ error: 'Endpoint not found' });
       }
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
