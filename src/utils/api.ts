@@ -163,12 +163,74 @@ export async function parseResponseSafely<T = any>(res: Response): Promise<{
   return { data: data as T, rawText, errorMessage };
 }
 
+/**
+ * Retrieves the stored JWT authentication token from localStorage.
+ * Checks primary key 'lalumiere_token' used across the application, with fallback to 'token'.
+ */
+export function getStoredAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  const token = localStorage.getItem('lalumiere_token') || localStorage.getItem('token');
+  if (!token || token === 'null' || token === 'undefined' || token.trim().length === 0) {
+    return null;
+  }
+  return token.trim();
+}
+
+/**
+ * Generates an Authorization header record with the current stored token if present.
+ */
+export function getAuthHeaders(extraHeaders?: HeadersInit): Record<string, string> {
+  const token = getStoredAuthToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (extraHeaders) {
+    if (Array.isArray(extraHeaders)) {
+      extraHeaders.forEach(([k, v]) => { headers[k] = v; });
+    } else if (typeof (extraHeaders as any).forEach === 'function') {
+      (extraHeaders as any).forEach((v: string, k: string) => { headers[k] = v; });
+    } else {
+      Object.assign(headers, extraHeaders);
+    }
+  }
+  return headers;
+}
+
 export async function safeFetchJson<T = any>(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<SafeApiResponse<T>> {
   try {
-    const res = await fetch(input, init);
+    const token = getStoredAuthToken();
+    let effectiveHeaders: HeadersInit = init?.headers || {};
+
+    // If a valid stored token exists and Authorization header wasn't explicitly set, automatically attach it
+    if (token) {
+      if (effectiveHeaders instanceof Headers) {
+        if (!effectiveHeaders.has('Authorization')) {
+          effectiveHeaders.set('Authorization', `Bearer ${token}`);
+        }
+      } else if (Array.isArray(effectiveHeaders)) {
+        const hasAuth = effectiveHeaders.some(([k]) => k.toLowerCase() === 'authorization');
+        if (!hasAuth) {
+          effectiveHeaders = [...effectiveHeaders, ['Authorization', `Bearer ${token}`]];
+        }
+      } else {
+        const headerObj = effectiveHeaders as Record<string, string>;
+        const hasAuth = Object.keys(headerObj).some(k => k.toLowerCase() === 'authorization');
+        if (!hasAuth) {
+          effectiveHeaders = { ...headerObj, Authorization: `Bearer ${token}` };
+        }
+      }
+    }
+
+    const res = await fetch(input, {
+      ...init,
+      headers: effectiveHeaders,
+    });
     const { data, errorMessage } = await parseResponseSafely<T>(res);
     const isSuccess = res.ok && (!data || (typeof data === 'object' && (data as any).success !== false));
     const errText = isSuccess ? null : (errorMessage || "Habaye ikosa ry'itumanaho");
