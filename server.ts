@@ -103,8 +103,9 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-// Ensure upload directory exists
-const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads');
+// Ensure persistent upload directory exists
+const DB_DIR = process.env.DATA_DIR || (process.env.DATABASE_PATH ? path.dirname(process.env.DATABASE_PATH) : path.join(process.cwd(), 'data'));
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(DB_DIR, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
@@ -124,8 +125,12 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
 });
 
-// Serve uploaded files statically
+// Serve uploaded files statically from persistent directory, with fallback for existing public/uploads
 app.use('/uploads', express.static(UPLOAD_DIR));
+const legacyUploadDir = path.join(process.cwd(), 'public', 'uploads');
+if (fs.existsSync(legacyUploadDir) && legacyUploadDir !== UPLOAD_DIR) {
+  app.use('/uploads', express.static(legacyUploadDir));
+}
 app.use('/audio', express.static(path.join(process.cwd(), 'public', 'audio')));
 
 // -------------------------------------------------------------
@@ -2240,7 +2245,6 @@ app.use('/api/attendance', attendanceRouter);
 app.use('/api/announcements', announcementsRouter);
 app.use('/api/admin/announcements', announcementsRouter);
 app.use('/api/reminders', remindersRouter);
-app.use('/api/admin/members', membersRouter);
 
 app.get('/api/notifications', requireAuth, (req: AuthRequest, res) => {
   try {
@@ -6251,6 +6255,9 @@ async function startServer() {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
+      if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/uploads')) {
+        return res.status(404).json({ error: 'Endpoint not found' });
+      }
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

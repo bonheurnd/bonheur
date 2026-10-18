@@ -24,7 +24,13 @@ export interface DbWrapper {
 }
 
 const rawDbInstance = new DatabaseSync(dbPath);
-rawDbInstance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
+rawDbInstance.exec('PRAGMA busy_timeout = 10000;');
+rawDbInstance.exec('PRAGMA foreign_keys = ON;');
+try {
+  rawDbInstance.exec('PRAGMA journal_mode = WAL;');
+} catch (journalErr) {
+  // If journal mode transition is deferred because of active connections, safely continue
+}
 
 export const db: DbWrapper = {
   exec(sql: string) {

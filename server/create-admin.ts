@@ -3,8 +3,8 @@ import bcrypt from 'bcryptjs';
 import path from 'path';
 import fs from 'fs';
 
-const DB_DIR = path.join(process.cwd(), 'data');
-const DB_PATH = path.join(DB_DIR, 'lalumiere.db');
+const DB_DIR = process.env.DATA_DIR || (process.env.DATABASE_PATH ? path.dirname(process.env.DATABASE_PATH) : path.join(process.cwd(), 'data'));
+const DB_PATH = process.env.DATABASE_PATH || path.join(DB_DIR, 'lalumiere.db');
 
 if (!fs.existsSync(DB_DIR)) {
   fs.mkdirSync(DB_DIR, { recursive: true });

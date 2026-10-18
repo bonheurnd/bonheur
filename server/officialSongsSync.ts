@@ -444,10 +444,12 @@ export function syncOfficialDocumentSongs(db: DbWrapper): ImportSyncReport {
         WHERE id = ?
       `).run(song.title, song.song_number, song.category_id, song.id);
 
-      // Upsert exact lyrics without changing words, punctuation, or formatting
-      const existingLyrics = db.prepare('SELECT id FROM lyrics WHERE song_id = ?').get(song.id);
+      // Upsert lyrics only if missing or empty, preserving admin-edited lyrics across server restarts
+      const existingLyrics = db.prepare('SELECT id, content FROM lyrics WHERE song_id = ?').get(song.id) as { id: string; content?: string } | undefined;
       if (existingLyrics) {
-        db.prepare('UPDATE lyrics SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE song_id = ?').run(song.lyrics, song.id);
+        if (!existingLyrics.content || existingLyrics.content.trim().length === 0) {
+          db.prepare('UPDATE lyrics SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE song_id = ?').run(song.lyrics, song.id);
+        }
       } else {
         db.prepare('INSERT INTO lyrics (id, song_id, content, language) VALUES (?, ?, ?, ?)').run('lyr_' + song.id, song.id, song.lyrics, 'rw');
       }

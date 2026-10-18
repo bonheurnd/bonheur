@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: la-lumiere-choir
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.3
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATA_DIR
+        value: /var/data
+      - key: DATABASE_PATH
+        value: /var/data/lalumiere.db
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        value: lalumierechoir@gmail.com
+      - key: PAYMENT_ENV
+        value: test
+      - key: PAYMENT_GATEWAY_PROVIDER
+        value: paypack
+      - key: PAYPACK_CLIENT_ID
+        sync: false
+      - key: PAYPACK_CLIENT_SECRET
+        sync: false
+      - key: PAYPACK_ENVIRONMENT
+        value: development
+    disk:
+      name: lalumiere-data
+      mountPath: /var/data
+      sizeGB: 1
